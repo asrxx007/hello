@@ -1,0 +1,482 @@
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  font-family: Arial, sans-serif;
+  background: #eef2f7; color: #111827;
+  min-height: 100%;
+  overflow-x: auto;
+}
+
+/* ---------- Auth bar (Firebase) ---------- */
+.authStatus { font-weight: 700; font-size: 12px; }
+.authStatus.ok { color: #32c462; }
+.authStatus.err { color: #dc2626; }
+.authUser { color: #475569; font-size: 12px; word-break: break-all; }
+.authLoginForm { display: flex; flex-direction: column; gap: 6px; }
+.authLoginForm input {
+  height: 32px; padding: 0 8px; border-radius: 6px; border: 1px solid #cbd5e1;
+  background: #fff; color: #111; font-size: 13px; width: 100%;
+}
+.loginUserWrap { margin-left: 4px; }
+.loginUserMenu { right: 0; min-width: 240px; padding: 10px; }
+.loginUserMenu .smallBtn { width: 100%; text-align: center; }
+#loginUserBtn.loggedIn { background: #e700ff; }
+
+/* ---------- Top bar ---------- */
+.top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 10px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,.1);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+h2 { margin: 0; font-size: 20px; white-space: nowrap; }
+
+.searchWrap { flex: 1; min-width: 120px; }
+.searchBox { position: relative; display: flex; align-items: center; }
+.searchBox input {
+  width: 100%;
+  height: 36px;
+  padding: 6px 36px 6px 12px;
+  font-size: 16px;
+  border: 1px solid #cfd3d8;
+  border-radius: 18px;
+  background: #fff;
+}
+.searchBox input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.25);
+}
+.searchClearBtn {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px; padding: 0;
+  border: none; border-radius: 50%;
+  background: transparent; color: #94a3b8;
+  font-size: 22px; cursor: pointer;
+  display: none;
+}
+.searchClearBtn:hover { color: #475569; }
+
+.topButtons {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.summary, .timeRow {
+  display: flex; gap: 12px; font-size: 13px; flex-wrap: wrap;
+}
+.timeRow { gap: 16px; }
+
+/* ---------- Buttons ---------- */
+button {
+  border: none; border-radius: 8px;
+  background: #197fd200; color: #fff;
+  padding: 6px 10px; font-weight: bold; cursor: pointer;
+}
+button:hover { filter: brightness(.92); }
+.blueBtn { background: #e700ff; }
+.redBtn, .deleteBtn { background: #e700ff; }
+.greenBtn, .addTripHeadBtn { background: #16a34a; }
+.editBtn { background: #4a6090; }
+.smallBtn { font-size: 12px; padding: 5px 9px; }
+.xBtn {
+  background: #dc2626; border-radius: 50%;
+  width: 28px; height: 28px; padding: 0;
+}
+
+.menuWrap { position: relative; }
+.dropMenu {
+  display: none; position: absolute; right: 0; top: 32px;
+  background: #fff; border: 1px solid #cbd5e1;
+  box-shadow: 0 8px 18px rgba(0,0,0,.15);
+  border-radius: 10px; padding: 6px; min-width: 160px; z-index: 99;
+}
+.dropMenu button {
+  display: block; width: 100%; text-align: left;
+  margin: 3px 0; background: #f1f5f9; color: #111;
+}
+
+/* ---------- Sections ---------- */
+.driversBox, .allTripsBox { padding: 4px; }
+.sectionTitle { font-size: 15px; font-weight: bold; margin-bottom: 4px; }
+.allTripsTitleRow {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.emptyText, .emptyDriver { color: #64748b; font-size: 12px; }
+
+/* ---------- Shared form controls ---------- */
+.driverSelect, .statusSelect, .timeSelect,
+.smallTextInput, .patientInput, .tripDetailsInput {
+  width: 100%; min-width: 0; color: #6a0000;
+  border: none; border-radius: 0;
+  height: 24px; padding: 2px 4px;
+  font-size: 12px; background: transparent;
+  appearance: none; -webkit-appearance: none;
+}
+.timeSelect { text-align: center; font-weight: 700; cursor: pointer; }
+.statusSelect { font-weight: 700; cursor: pointer; }
+.patientInput, .patientTextArea {
+  font-weight: 600; color: #7d2ec2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  resize: none;
+}
+.tripDetailsInput {
+  height: 24px; max-height: 24px;
+  resize: none; overflow: auto;
+  white-space: nowrap; line-height: 20px;
+  scrollbar-width: none;           /* Firefox */
+  -ms-overflow-style: none;        /* IE/Edge */
+}
+.tripDetailsInput::-webkit-scrollbar {
+  display: none;                   /* Chrome, Safari, Edge */
+}
+
+/* Status colors */
+.statusUnassigned { background: #ffe6f6 !important; color: #111 !important; }
+.statusAssigned   { background: #facc15 !important; color: #111 !important; }
+.statusLoaded     { background: #2eddfc !important; color: #111 !important; }
+.statusDone       { background: #16a34a !important; color: #fff !important; }
+.statusCancelled  { background: #919090 !important; color: #fff !important; }
+.statusNoLoad     { background: #bdbbbb !important; color: #fff !important; }
+.statusNoReturn   { background: #fff !important; color: #111 !important; }
+
+/* Service border colors on trip rows */
+.tripTable tr.wc  { box-shadow: inset 4px 0 0 #f59e0b; }
+.tripTable tr.gur { box-shadow: inset 4px 0 0 #dc2626; }
+.tripTable tr.bar { box-shadow: inset 4px 0 0 #7c3aed; }
+.tripTable tr.amb { box-shadow: inset 4px 0 0 #1976d2; }
+
+/* ---------- Drivers board ---------- */
+.driversBoard { overflow: auto; }
+.driverTableWrap {
+  border: 1px solid #d9d9d9; background: #fff; position: relative;
+}
+.driverTable {
+  border-collapse: collapse; table-layout: fixed;
+  width: max-content; min-width: 100%;
+}
+.driverTable th {
+  position: relative;
+  height: 64px; padding: 0;
+  border: 1px solid #d9d9d9;
+  background: #fff; vertical-align: top;
+  user-select: none;
+}
+.driverHeaderCell {
+  display: grid; grid-template-rows: 30px 1fr;
+  height: 100%;
+}
+.driverNameBtn {
+  width: 100%; height: 30px; padding: 0;
+  border: none; border-bottom: 1px solid #d9d9d9;
+  border-radius: 0; background: #fff; color: #000;
+  font-size: 16px; font-weight: 800; text-align: center;
+  cursor: pointer;
+}
+.driverNameBtn:hover { background: #eef6ff; filter: none; }
+.driverNoteInput {
+  width: 100%; height: 100%; min-height: 28px;
+  border: none; border-radius: 0; padding: 3px 6px;
+  font-size: 12px; resize: none; overflow: auto;
+  background: #fff;
+}
+.driverTable td {
+  padding: 0; border: 1px solid #d9d9d9;
+  vertical-align: top; overflow: hidden;
+}
+.driverTrips {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+}
+.driverTripRow {
+  display: grid; grid-template-columns: 40px 1fr;
+  height: 22px; min-height: 22px;
+  border-bottom: 1px solid #e5e7eb;
+  align-items: stretch;
+}
+.driverTripRow:last-child { border-bottom: none; }
+.driverTimeDisplay {
+  display: block; height: 22px; line-height: 22px;
+  text-align: center; font-size: 11px; font-weight: 700;
+  overflow: hidden;
+}
+.driverNameStatusWrap {
+  position: relative;
+  min-width: 0;
+  height: 22px;
+}
+.driverPatientName {
+  display: block; height: 22px; line-height: 22px;
+  padding: 0 4px;
+  font-size: 11px; font-weight: 700; text-align: left;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none;
+}
+.driverStatusNative {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 12px;
+}
+.driverPatientName:hover { filter: none; text-decoration: underline; }
+.driverStatusMenu {
+  display: none; position: absolute; left: 0; top: 22px; z-index: 80;
+  min-width: 150px; background: #fff;
+  border: 1px solid #cbd5e1; border-radius: 6px;
+  box-shadow: 0 8px 18px rgba(0,0,0,.18); padding: 4px;
+}
+.driverStatusMenu button {
+  display: block; width: 100%; text-align: left;
+  margin: 2px 0; padding: 5px 8px;
+  border-radius: 4px; font-size: 12px; color: #111;
+}
+.driverStatusRouteLabel {
+  padding: 4px 6px 6px; font-size: 11px; font-weight: 700;
+  color: #334155; border-bottom: 1px solid #e5e7eb; margin-bottom: 4px;
+}
+
+
+.driverColResizer {
+  position: absolute; right: 0; top: 0; width: 8px; height: 100%;
+  cursor: col-resize;
+}
+.driverColResizer:hover { background: #93c5fd; }
+.driverRowResizer {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 6px;
+  cursor: row-resize;
+}
+.driverRowResizer:hover { background: #93c5fd; }
+
+/* ---------- Trip table ---------- */
+.tripTableWrap {
+  border: 1px solid #d9d9d9; background: #fff;
+}
+.tripTable {
+  border-collapse: collapse; table-layout: fixed;
+  width: max-content; min-width: 100%;
+}
+.tripTable th {
+  position: sticky; top: 48px; z-index: 3;
+  background: #fff; text-align: center;
+  font-size: 13px; font-weight: 800;
+  padding: 4px 10px 4px 4px; height: 28px;
+  border: 1px solid #d9d9d9;
+  user-select: none;
+}
+.tripTable td {
+  padding: 0; height: 24px;
+  border: 1px solid #e0e0e0;
+  vertical-align: middle; overflow: hidden;
+  font-size: 12px; background: #fff;
+}
+.tripTable td:last-child { overflow: visible; }
+.tripTable tr.tripMenuOpen { position: relative; z-index: 50; }
+
+.colResizer {
+  position: absolute; right: 0; top: 0; width: 8px; height: 100%;
+  cursor: col-resize;
+}
+.colResizer:hover { background: #93c5fd; }
+body.resizingCol, body.resizingRow { user-select: none; }
+
+.driverAssignCell { display: flex; height: 24px; align-items: stretch; }
+.driverAssignCell select { width: 100%; height: 24px; font-weight: 600; }
+
+.computedNotes {
+  height: 24px; padding: 2px 5px;
+  font-size: 12px; font-weight: 600; color: #1e40af;
+  display: flex; align-items: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.tripDetailCell {
+  position: relative; height: 24px; padding-right: 26px;
+}
+.tripDetailCell .tripDetailsInput { width: calc(100% - 2px); padding-right: 24px; }
+.tripActionWrap { position: absolute; right: 2px; top: 1px; z-index: 20; }
+.tripActionBtn {
+  width: 22px; height: 20px; padding: 0;
+  border-radius: 3px; font-size: 12px;
+  background: #64748b; color: #fff; cursor: pointer;
+}
+.tripActionMenu {
+  display: none; position: absolute; right: 0; top: 20px;
+  min-width: 120px; background: #fff;
+  border: 1px solid #cbd5e1; border-radius: 6px;
+  box-shadow: 0 8px 18px rgba(0,0,0,.2); padding: 4px; z-index: 9999;
+}
+.tripActionMenu button {
+  display: block; width: 100%; text-align: left;
+  margin: 2px 0; background: #f1f5f9; color: #111;
+  font-size: 12px; padding: 5px 8px;
+}
+.tripActionDelete { color: #dc2626 !important; }
+
+/* ---------- Modals ---------- */
+.modal {
+  display: none; position: fixed; inset: 0;
+  background: rgba(15,23,42,.45); z-index: 999;
+  align-items: center; justify-content: center; padding: 16px;
+}
+.modalBox {
+  width: min(720px, 95vw); max-height: 86vh; overflow: auto;
+  background: #fff; border-radius: 12px;
+  box-shadow: 0 18px 40px rgba(0,0,0,.25); padding: 12px;
+}
+.bigModal { width: min(900px, 96vw); }
+.addTripModalBox { width: min(640px, 96vw); }
+.importTripModalBox { width: min(980px, 96vw); max-height: 88vh; }
+.statusModalBox { width: min(360px, 94vw); }
+
+.modalHead {
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; margin-bottom: 10px;
+}
+.modalHint { color: #64748b; font-size: 12px; font-weight: bold; }
+.modalAdd { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.modalAdd input {
+  flex: 1; min-width: 180px;
+  border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px;
+}
+
+.addTripGrid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+}
+.addTripGrid label {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 12px; font-weight: bold;
+}
+.fullAddTrip { grid-column: 1 / -1; }
+.bigTripBox {
+  height: 100px !important; min-height: 100px !important;
+  max-height: none !important; resize: vertical !important;
+  white-space: pre-wrap !important; overflow: auto !important;
+  border: 1px solid #cbd5e1 !important; border-radius: 6px !important;
+  padding: 6px !important;
+}
+
+.driverManageRow, .historyRow {
+  display: grid; gap: 6px; align-items: center;
+  padding: 7px; border-bottom: 1px solid #e5e7eb;
+}
+.driverManageRow { grid-template-columns: 40px 1fr auto auto auto auto; }
+.historyRow { grid-template-columns: 1fr auto auto; }
+.driverOrder {
+  background: #e0f2fe; border-radius: 999px;
+  padding: 4px 8px; text-align: center; font-weight: bold;
+}
+
+/* Assign trip modal */
+.assignTripSearch { margin-bottom: 10px; }
+.assignTripSearch input {
+  width: 100%; height: 34px; padding: 0 10px;
+  border: 1px solid #94a3b8; border-radius: 8px; font-size: 13px;
+}
+.assignTripList { max-height: 55vh; overflow: auto; }
+.assignTripTable { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.assignTripTable th, .assignTripTable td {
+  border: 1px solid #d9d9d9; padding: 6px; font-size: 12px;
+}
+.assignTripTable th { background: #f8fafc; text-align: center; font-weight: 800; }
+.assignTripPick, .assignTripReturn {
+  text-align: center; font-weight: 800; cursor: pointer; background: #eef6ff;
+}
+.assignTripPick:hover, .assignTripReturn:hover { background: #bfdbfe; }
+.assignTripPatient { text-align: left; }
+
+.statusChoiceGrid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 10px;
+}
+.statusChoiceBtn {
+  border: 1px solid #d1d5db !important; border-radius: 6px !important;
+  padding: 10px 8px !important; font-size: 14px !important; color: #111;
+}
+.selectedStatusChoice { outline: 3px solid #2563eb !important; }
+.driverStatusRoute { font-size: 13px; color: #475569; margin-bottom: 6px; }
+
+/* Hidden trips */
+.hiddenTripsList { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow: auto; }
+.hiddenTripRow {
+  display: flex; gap: 10px; padding: 10px;
+  border: 1px solid #e5e7eb; border-radius: 8px; background: #f8fafc;
+}
+.hiddenTripInfo { flex: 1; min-width: 0; }
+.hiddenTripMeta { display: block; font-size: 12px; color: #475569; margin-top: 2px; }
+.hiddenTripRaw {
+  margin-top: 4px; font-size: 11px; color: #64748b;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---------- CSV Import ---------- */
+.importCsvFile {
+  width: 100%; margin-bottom: 10px; padding: 12px;
+  font-size: 14px; border: 2px dashed #1976d2;
+  border-radius: 8px; background: #f8fbff;
+}
+.importToolRow {
+  display: flex; align-items: center; gap: 7px;
+  margin-bottom: 8px; flex-wrap: wrap;
+}
+.importToolRow button { min-width: 72px; height: 32px; font-size: 12px; }
+.importSearchInput {
+  flex: 1; min-width: 160px; height: 32px;
+  border: 1px solid #94a3b8; border-radius: 7px;
+  padding: 0 9px; font-size: 12px;
+}
+.importCountRow {
+  display: none; margin: 8px 0; padding: 8px;
+  background: #eef7ff; border-radius: 8px;
+  font-size: 12px; font-weight: bold; line-height: 1.6;
+}
+.importCountRow span { cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+.importCountRow span:hover { background: #dbeafe; }
+.importCountActive { background: #1976d2 !important; color: #fff !important; }
+.importCountNew { color: #16a34a; font-weight: 800; }
+.importCountRemoved { color: #ef4444; font-weight: 800; }
+.importStatus { margin: 7px 0; font-size: 13px; font-weight: bold; }
+.importStatus.loading { color: #1976d2; }
+.importStatus.done { color: #16a34a; }
+.importStatus.error { color: #dc2626; }
+.importTripList { display: flex; flex-direction: column; gap: 8px; }
+.importTripRow {
+  display: flex; gap: 8px; align-items: flex-start;
+  background: #fff; border: 1px solid #e5e7eb;
+  border-radius: 9px; padding: 8px;
+}
+.importTripRow.importNewTrip {
+  border-left: 5px solid #22c55e; background: #f0fdf4;
+}
+.importAddBtn {
+  width: 58px; min-width: 58px; height: 30px; padding: 0;
+  border-radius: 8px; background: #16a34a; color: #fff;
+  font-size: 12px; font-weight: bold;
+}
+.importAddBtn.added { background: #6b7280; }
+.importTripText {
+  flex: 1; white-space: pre-wrap; word-break: break-word;
+  font-size: 12px; line-height: 1.45;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 900px) {
+  .top { flex-wrap: wrap; gap: 8px; }
+  .searchWrap { order: 3; flex: 1 1 100%; }
+}
+@media (max-width: 700px) {
+  .addTripGrid { grid-template-columns: 1fr; }
+  .importToolRow { display: grid; grid-template-columns: 1fr 1fr; }
+  .importSearchInput { grid-column: 1 / -1; }
+}

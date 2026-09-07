@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dispatch Board</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+</head>
+<body>
+  <div class="top">
+    <h2>Hallo</h2>
+    <div class="searchWrap">
+      <span class="searchBox">
+        <input id="quickSearch" placeholder="Search anything" oninput="setQuickSearch(this.value)" />
+        <button id="quickSearchClear" class="searchClearBtn" type="button" onclick="clearQuickSearch()" title="Clear search">×</button>
+      </span>
+    </div>
+    <div class="topButtons">
+      <div class="summary">
+        <span>Total: <b id="totalTrips">0</b></span>
+        <span>No Driver: <b id="unassignedCount">0</b></span>
+        <span>Assigned: <b id="assignedCount">0</b></span>
+        <span>Loaded: <b id="loadedCount">0</b></span>
+        <span>Done: <b id="doneCount">0</b></span>
+        <span>Cancelled: <b id="cancelledCount">0</b></span>
+      </div>
+      <div class="timeRow">
+        <span>India: <b id="indiaTime">--</b></span>
+        <span>PST: <b id="laTime">--</b></span>
+      </div>
+      <button class="smallBtn blueBtn" onclick="undoAction()">←</button>
+      <button class="smallBtn blueBtn" onclick="redoAction()">→</button>
+      <div class="menuWrap">
+        <button class="smallBtn blueBtn" onclick="toggleMenu('historyMenu')">↺</button>
+        <div id="historyMenu" class="dropMenu">
+          <button onclick="saveHistory()">Save History</button>
+          <button onclick="openHistoryModal()">View Saved History</button>
+          <button onclick="importHistoryJson()">Import History JSON</button>
+        </div>
+      </div>
+      <div class="menuWrap">
+        <button class="smallBtn redBtn" onclick="toggleMenu('clearMenu')">X</button>
+        <div id="clearMenu" class="dropMenu">
+          <button onclick="clearAllTripsData()">Clear All Trips</button>
+          <button onclick="clearAllDriversData()">Clear All Drivers</button>
+        </div>
+      </div>
+      <div class="menuWrap loginUserWrap">
+        <button id="loginUserBtn" onclick="toggleMenu('loginUserMenu')">Login</button>
+        <div id="loginUserMenu" class="dropMenu loginUserMenu">
+          <span id="authStatus" class="authStatus">Connecting…</span>
+          <span id="authUser" class="authUser"></span>
+          <form id="authLoginForm" class="authLoginForm" onsubmit="return handleAuthLogin(event)">
+            <input id="authEmail" type="email" placeholder="Email" required autocomplete="username" />
+            <input id="authPassword" type="password" placeholder="Password" required autocomplete="current-password" />
+            <button type="submit" class="smallBtn greenBtn">Sign in</button>
+          </form>
+          <button id="authLogoutBtn" class="smallBtn redBtn" style="display:none"
+                  onclick="logoutFirebase()">Sign out</button>
+          <button id="authUploadBtn" class="smallBtn blueBtn" style="display:none"
+                  onclick="uploadLocalBoardToCloud()">Upload local → cloud</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <section class="driversBox">
+    <div class="sectionTitle allTripsTitleRow">
+      <span>Drivers</span>
+
+      <button class="smallBtn greenBtn"
+              onclick="openDriversModal()">
+        Drivers
+      </button>
+    </div>
+
+    <div id="driversBoard" class="driversBoard"></div>
+  </section>
+  
+  <section class="allTripsBox">
+    <div class="sectionTitle allTripsTitleRow">
+      <span>All Added Trips</span>
+      <div style="display:flex;gap:6px;">
+        <button class="addTripHeadBtn" onclick="openAddTripModal()">Add Trip</button>
+        <button class="smallBtn greenBtn" onclick="openImportTripModal()">Import</button>
+        <button class="smallBtn blueBtn" id="hiddenTripsBtn" onclick="openHiddenTripsModal()">Hidden (<span id="hiddenTripsCount">0</span>)</button>
+      </div>
+    </div>
+    <div class="tripTableWrap">
+      <table class="tripTable" id="tripTable">
+        <colgroup>
+          <col style="width:90px">
+          <col style="width:60px">
+          <col style="width:85px">
+          <col style="width:100px">
+          <col style="width:100px">
+          <col style="width:720px">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Driver</th>
+            <th>Status</th>
+            <th>Pickup</th>
+            <th>Notes</th>
+            <th>Name</th>
+            <th>Trip Details</th>
+          </tr>
+        </thead>
+        <tbody id="allTripsList"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div id="driversModal" class="modal">
+    <div class="modalBox">
+      <div class="modalHead">
+        <b>Drivers</b>
+        <button class="xBtn" onclick="closeModal('driversModal')">×</button>
+      </div>
+      <div class="modalAdd">
+        <input id="newDriverName" placeholder="Driver name optional" />
+        <button class="greenBtn" onclick="addDriverFromModal()">Add Driver</button>
+        <button class="redBtn" onclick="clearAllDrivers()">Clear All Drivers</button>
+      </div>
+      <div id="driversManager"></div>
+    </div>
+  </div>
+
+  <div id="historyModal" class="modal">
+    <div class="modalBox bigModal">
+      <div class="modalHead">
+        <b>Saved History</b>
+        <button class="xBtn" onclick="closeModal('historyModal')">×</button>
+      </div>
+      <div id="historyList"></div>
+    </div>
+  </div>
+
+  <div id="addTripModal" class="modal">
+    <div class="modalBox addTripModalBox">
+      <div class="modalHead noCloseHead">
+        <b>Add Trip</b>
+      </div>
+      <div id="addTripFields"></div>
+    </div>
+  </div>
+
+  <div id="hiddenTripsModal" class="modal">
+    <div class="modalBox bigModal">
+      <div class="modalHead">
+        <b>Hidden Trips</b>
+        <button class="xBtn" onclick="closeModal('hiddenTripsModal')">×</button>
+      </div>
+      <div class="modalHint" style="margin-bottom:8px;">These trips are hidden from All Added Trips. Click Unhide to show a trip again.</div>
+      <div style="margin-bottom:10px;">
+        <button class="smallBtn greenBtn" onclick="unhideAllTrips()">Unhide All</button>
+      </div>
+      <div id="hiddenTripsList" class="hiddenTripsList"></div>
+    </div>
+  </div>
+
+  <div id="importTripModal" class="modal">
+    <div class="modalBox importTripModalBox">
+      <div class="modalHead">
+        <b>Import Trips From CSV</b>
+        <button class="xBtn" onclick="closeModal('importTripModal')">×</button>
+      </div>
+
+      <input type="file" id="importCsvFile" class="importCsvFile" accept=".csv" onchange="readImportedCSV()" />
+
+      <div class="importToolRow">
+        <button class="smallBtn greenBtn" onclick="addAllDisplayedTrips()">ADD ALL DISPLAYED</button>
+        <button class="smallBtn blueBtn" onclick="formatImportedTrips()">FORMAT</button>
+        <button class="smallBtn blueBtn" onclick="sortImportedTrips()">SORT NAME</button>
+        <button class="smallBtn blueBtn" onclick="filterImportedEarlyTripsOnly()">EARLY TRIP</button>
+        <button class="smallBtn blueBtn" onclick="detectImportedReturns()">RETURNS</button>
+        <input id="importSearchInput" class="importSearchInput" placeholder="Search imported trips..." oninput="searchImportedTrips()" />
+      </div>
+
+      <div id="importCountRow" class="importCountRow"></div>
+      <div id="importStatus" class="importStatus"></div>
+      <div id="importTripList" class="importTripList"></div>
+    </div>
+  </div>
+  <input
+    type="file"
+    id="historyImportFile"
+    accept=".json"
+    style="display:none"
+    onchange="handleHistoryImport(event)">
+  <script src="script.js"></script>
+</body>
+</html>
+
