@@ -423,10 +423,41 @@ function startRealtimeListeners() {
       tryResolveLoginMerge();
       return;
     }
+    const changes = typeof snap.docChanges === "function" ? snap.docChanges() : null;
+    const onlyStatusMods = changes && changes.length && changes.every(ch => {
+      if (ch.type !== "modified") return false;
+      const local = trips.find(x => x.id === ch.doc.id);
+      if (!local) return false;
+      const next = firestoreToTrip(ch.doc.id, ch.doc.data());
+      return local.raw === next.raw
+        && local.pickupDriver === next.pickupDriver
+        && local.returnDriver === next.returnDriver
+        && local.pickupTime === next.pickupTime
+        && local.returnTime === next.returnTime
+        && local.passenger === next.passenger
+        && local.hidden === next.hidden
+        && (local.pickupStatus !== next.pickupStatus || local.returnStatus !== next.returnStatus);
+    });
     _applyingRemote = true;
-    trips = snap.docs.map(doc => firestoreToTrip(doc.id, doc.data()));
-    saveData();
-    render();
+    if (onlyStatusMods) {
+      changes.forEach(ch => {
+        const next = firestoreToTrip(ch.doc.id, ch.doc.data());
+        const local = trips.find(x => x.id === ch.doc.id);
+        if (!local) return;
+        const pickupChanged = local.pickupStatus !== next.pickupStatus;
+        const returnChanged = local.returnStatus !== next.returnStatus;
+        local.pickupStatus = next.pickupStatus;
+        local.returnStatus = next.returnStatus;
+        invalidateTripSearch(local);
+        if (pickupChanged) patchStatusUI(local, "pickupStatus");
+        if (returnChanged) patchStatusUI(local, "returnStatus");
+      });
+      saveData();
+    } else {
+      trips = snap.docs.map(doc => firestoreToTrip(doc.id, doc.data()));
+      saveData();
+      render();
+    }
     _applyingRemote = false;
   }, err => {
     console.error("trips listener", err);
@@ -977,12 +1008,13 @@ function setDriverTripStatus(id, leg, status) {
   const t = trips.find(x => x.id === id);
   if (!t) return;
   const field = leg === "return" ? "returnStatus" : "pickupStatus";
+  if (t[field] === status) return;
   pushUndo();
   t[field] = status;
   invalidateTripSearch(t);
   saveData();
   cloudUpsertTrip(t);
-  render();
+  patchStatusUI(t, field);
 }
 
 function changeDriverTripStatus(id, leg) {
@@ -1162,7 +1194,12 @@ function updateTripField(id, field, value, renderNow = true) {
   invalidateTripSearch(t);
   saveData();
   cloudUpsertTrip(t);
-  if (renderNow) render();
+  if (!renderNow) return;
+  if (field === "pickupStatus" || field === "returnStatus") {
+    patchStatusUI(t, field);
+    return;
+  }
+  render();
 }
 
 function updatePickupDriver(id, value) {
@@ -1348,7 +1385,7 @@ function createAllTripRow(trip) {
     <td><div class="driverAssignCell compactDriverAssign">
       <select class="driverSelect" title="Pickup Driver" onchange="updatePickupDriver('${trip.id}',this.value)">${driverOptions(trip.pickupDriver)}</select>
     </div></td>
-    <td><select class="statusSelect ${statusClass(trip.pickupStatus)}" title="Pick status" onchange="updateTripField('${trip.id}','pickupStatus',this.value)">${statusOptions(trip.pickupStatus)}</select></td>
+    <td><select class="statusSelect ${statusClass(trip.pickupStatus)}" title="Pick status" onchange="this.className='statusSelect '+statusClass(this.value);updateTripField('${trip.id}','pickupStatus',this.value)">${statusOptions(trip.pickupStatus)}</select></td>
     <td>${timeSelectLazy(trip.pickupTime, "pickup", `updateTripField('${trip.id}','pickupTime',this.value)`)}</td>
     <td><div class="computedNotes" title="${escapeHtml(trip.notes || "No notes")}">${escapeHtml(displayNotes)}</div></td>
     <td><textarea class="patientInput patientTextArea" rows="1" onchange="updateTripField('${trip.id}','passenger',this.value)">${escapeHtml(trip.passenger)}</textarea></td>
@@ -1397,6 +1434,77 @@ function buildDriverTripIndex() {
   return map;
 }
 
+function driverColumnInner(driverName, tripIndex) {
+  const rows = driverAssignedTrips(driverName, tripIndex).map(r => {
+    const route = tripCityRoute(r.trip, r.kind);
+    return `
+      <div class="driverTripRow ${statusClass(r.status)}">
+        <span class="driverTimeDisplay">${escapeHtml(formatTimeCompact(r.time))}</span>
+        <div class="driverNameStatusWrap" title="${escapeHtml(route || "Click to change status")}">
+          <span class="driverPatientName">${escapeHtml(r.trip.passenger || "No name")}</span>
+          <select class="driverStatusNative" aria-label="Trip status"
+            onchange="setDriverTripStatus('${r.trip.id}','${r.kind}',this.value)">
+            ${statusOptionsWithRoute(r.status, route)}
+          </select>
+        </div>
+      </div>`;
+  }).join("");
+  return `<div class="driverTrips">${rows || `<span class="emptyDriver">No trips</span>`}</div>`;
+}
+
+function refreshDriverColumn(driverName) {
+  if (!driverName) return;
+  let td = null;
+  document.querySelectorAll("#driverTable tbody td").forEach(cell => {
+    if (cell.dataset.driverName === driverName) td = cell;
+  });
+  if (!td) return;
+  const keepScroll = td.querySelector(".driverTrips");
+  const scrollTop = keepScroll ? keepScroll.scrollTop : 0;
+  td.innerHTML = driverColumnInner(driverName);
+  const box = td.querySelector(".driverTrips");
+  if (box) box.scrollTop = scrollTop;
+}
+
+function patchTripStatusRow(trip) {
+  if (!trip) return;
+  const tr = document.querySelector(`#allTripsList tr[data-trip-id="${trip.id}"]`);
+  if (!tr) return;
+  const statusSel = tr.querySelector(".statusSelect");
+  if (statusSel) {
+    statusSel.value = trip.pickupStatus || "UNASSIGNED";
+    statusSel.className = "statusSelect " + statusClass(trip.pickupStatus);
+  }
+}
+
+function updateSummaryCountsOnly() {
+  let total = 0, unassigned = 0, assigned = 0, loaded = 0, done = 0, cancelled = 0, hidden = 0;
+  for (const t of trips) {
+    if (t.hidden) { hidden++; continue; }
+    total++;
+    if (!t.pickupDriver && !t.returnDriver) unassigned++;
+    if (t.pickupDriver || t.returnDriver) assigned++;
+    if (t.pickupStatus === "LOADED" || t.returnStatus === "LOADED") loaded++;
+    if (t.pickupStatus === "DONE" || t.returnStatus === "DONE") done++;
+    if (t.pickupStatus === "CANCELLED" || t.returnStatus === "CANCELLED") cancelled++;
+  }
+  const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  setTxt("totalTrips", total);
+  setTxt("unassignedCount", unassigned);
+  setTxt("assignedCount", assigned);
+  setTxt("loadedCount", loaded);
+  setTxt("doneCount", done);
+  setTxt("cancelledCount", cancelled);
+  setTxt("hiddenTripsCount", String(hidden));
+}
+
+function patchStatusUI(t, field) {
+  patchTripStatusRow(t);
+  const driverName = field === "returnStatus" ? t.returnDriver : t.pickupDriver;
+  refreshDriverColumn(driverName);
+  updateSummaryCountsOnly();
+}
+
 function driverAssignedTrips(driverName, index) {
   if (index) return index.get(driverName) || [];
   const rows = [];
@@ -1430,6 +1538,7 @@ function createDriverTable() {
   const headRow = document.createElement("tr");
   drivers.forEach((driver, i) => {
     const th = document.createElement("th");
+    th.dataset.driverName = driver.name;
     th.innerHTML = `
       <div class="driverHeaderCell">
         <button class="driverNameBtn" title="Click to assign trip" onclick="openAssignTripModal('${escapeHtml(driver.name)}')">${escapeHtml(driver.name)}</button>
@@ -1447,22 +1556,9 @@ function createDriverTable() {
   const tripIndex = buildDriverTripIndex();
   drivers.forEach(driver => {
     const td = document.createElement("td");
+    td.dataset.driverName = driver.name;
     td.style.height = savedH + "px";
-    const rows = driverAssignedTrips(driver.name, tripIndex).map(r => {
-      const route = tripCityRoute(r.trip, r.kind);
-      return `
-      <div class="driverTripRow ${statusClass(r.status)}">
-        <span class="driverTimeDisplay">${escapeHtml(formatTimeCompact(r.time))}</span>
-        <div class="driverNameStatusWrap" title="${escapeHtml(route || "Click to change status")}">
-          <span class="driverPatientName">${escapeHtml(r.trip.passenger || "No name")}</span>
-          <select class="driverStatusNative" aria-label="Trip status"
-            onchange="setDriverTripStatus('${r.trip.id}','${r.kind}',this.value)">
-            ${statusOptionsWithRoute(r.status, route)}
-          </select>
-        </div>
-      </div>`;
-    }).join("");
-    td.innerHTML = `<div class="driverTrips">${rows || `<span class="emptyDriver">No trips</span>`}</div>`;
+    td.innerHTML = driverColumnInner(driver.name, tripIndex);
     row.appendChild(td);
   });
   tbody.appendChild(row);
