@@ -1337,12 +1337,14 @@ function setupColumnDrag(table, onDrop) {
     th.dataset.dragBound = "1";
     th.addEventListener("pointerdown", e => {
       if (e.button && e.button !== 0) return;
-      if (e.target.closest(".driverColResizer, .colResizer, .driverNameBtn, .driverNoteInput, textarea, input, select, button")) return;
+      if (e.target.closest(".driverColResizer, .colResizer, .driverNoteInput, textarea, input, select")) return;
+      if (e.target.closest("button") && !e.target.closest(".driverNameBtn")) return;
       const startX = e.clientX;
       const startY = e.clientY;
       const from = [...headRow.children].indexOf(th);
       let dragging = false;
       let lastTarget = -1;
+      const nameBtn = e.target.closest(".driverNameBtn");
       function targetIndex(clientX) {
         const ths = [...headRow.children];
         for (let i = 0; i < ths.length; i++) {
@@ -1358,6 +1360,7 @@ function setupColumnDrag(table, onDrop) {
           document.body.classList.add("draggingCol");
           th.classList.add("colDragging");
         }
+        ev.preventDefault();
         const to = targetIndex(ev.clientX);
         if (to !== lastTarget) {
           headRow.querySelectorAll("th").forEach(x => x.classList.remove("colDropTarget"));
@@ -1371,11 +1374,15 @@ function setupColumnDrag(table, onDrop) {
         document.body.classList.remove("draggingCol");
         th.classList.remove("colDragging");
         headRow.querySelectorAll("th").forEach(x => x.classList.remove("colDropTarget"));
-        if (!dragging) return;
+        if (!dragging) {
+          if (nameBtn && th.dataset.driverName) openAssignTripModal(th.dataset.driverName);
+          return;
+        }
         const to = targetIndex(ev.clientX);
         if (to !== from) onDrop(from, to);
       }
-      document.addEventListener("pointermove", onMove);
+      try { th.setPointerCapture(e.pointerId); } catch (err) {}
+      document.addEventListener("pointermove", onMove, { passive: false });
       document.addEventListener("pointerup", onUp);
     });
   });
@@ -1575,7 +1582,7 @@ function createDriverTable() {
     th.dataset.driverId = driver.id;
     th.innerHTML = `
       <div class="driverHeaderCell">
-        <button class="driverNameBtn" title="Click to assign trip" onclick="openAssignTripModal('${escapeHtml(driver.name)}')">${escapeHtml(driver.name)}</button>
+        <button type="button" class="driverNameBtn" title="Drag to move column · click to assign">${escapeHtml(driver.name)}</button>
         <textarea class="driverNoteInput popupInput" placeholder="notes"
           oninput="updateDriverNote('${driver.id}',this.value)">${escapeHtml(driver.note || "")}</textarea>
       </div>`;
