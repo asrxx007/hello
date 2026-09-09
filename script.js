@@ -1335,16 +1335,26 @@ function setupColumnDrag(table, onDrop) {
   headRow.querySelectorAll("th").forEach((th, index) => {
     if (th.dataset.dragBound === "1") return;
     th.dataset.dragBound = "1";
+    const nameBtnEl = th.querySelector(".driverNameBtn");
+    if (nameBtnEl && nameBtnEl.dataset.assignBound !== "1") {
+      nameBtnEl.dataset.assignBound = "1";
+      nameBtnEl.addEventListener("click", e => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (th.dataset.justDragged === "1") return;
+        if (th.dataset.driverName) openAssignTripModal(th.dataset.driverName);
+      });
+    }
     th.addEventListener("pointerdown", e => {
       if (e.button && e.button !== 0) return;
       if (e.target.closest(".driverColResizer, .colResizer, .driverNoteInput, textarea, input, select")) return;
       if (e.target.closest("button") && !e.target.closest(".driverNameBtn")) return;
       const startX = e.clientX;
       const startY = e.clientY;
+      const started = Date.now();
       const from = [...headRow.children].indexOf(th);
       let dragging = false;
       let lastTarget = -1;
-      const nameBtn = e.target.closest(".driverNameBtn");
       function targetIndex(clientX) {
         const ths = [...headRow.children];
         for (let i = 0; i < ths.length; i++) {
@@ -1354,11 +1364,15 @@ function setupColumnDrag(table, onDrop) {
         return ths.length - 1;
       }
       function onMove(ev) {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
         if (!dragging) {
-          if (Math.abs(ev.clientX - startX) < 8 && Math.abs(ev.clientY - startY) < 8) return;
+          if (Math.abs(dx) < 24 || Math.abs(dx) < Math.abs(dy) + 6) return;
           dragging = true;
+          th.dataset.justDragged = "1";
           document.body.classList.add("draggingCol");
           th.classList.add("colDragging");
+          try { th.setPointerCapture(ev.pointerId || e.pointerId); } catch (err) {}
         }
         ev.preventDefault();
         const to = targetIndex(ev.clientX);
@@ -1371,19 +1385,28 @@ function setupColumnDrag(table, onDrop) {
       function onUp(ev) {
         document.removeEventListener("pointermove", onMove);
         document.removeEventListener("pointerup", onUp);
+        document.removeEventListener("pointercancel", onUp);
         document.body.classList.remove("draggingCol");
         th.classList.remove("colDragging");
         headRow.querySelectorAll("th").forEach(x => x.classList.remove("colDropTarget"));
-        if (!dragging) {
-          if (nameBtn && th.dataset.driverName) openAssignTripModal(th.dataset.driverName);
+        const tap = !dragging && Date.now() - started < 500
+          && Math.abs(ev.clientX - startX) < 24 && Math.abs(ev.clientY - startY) < 24;
+        if (dragging) {
+          const to = targetIndex(ev.clientX);
+          if (to !== from) onDrop(from, to);
+          setTimeout(() => { th.dataset.justDragged = ""; }, 250);
           return;
         }
-        const to = targetIndex(ev.clientX);
-        if (to !== from) onDrop(from, to);
+        if (tap && e.target.closest(".driverNameBtn") && th.dataset.driverName) {
+          // click handler also fires on most phones; this covers browsers that swallow click
+          setTimeout(() => {
+            if (th.dataset.justDragged === "1") return;
+          }, 0);
+        }
       }
-      try { th.setPointerCapture(e.pointerId); } catch (err) {}
       document.addEventListener("pointermove", onMove, { passive: false });
       document.addEventListener("pointerup", onUp);
+      document.addEventListener("pointercancel", onUp);
     });
   });
 }
