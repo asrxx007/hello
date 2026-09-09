@@ -180,7 +180,6 @@ function tripToFirestore(t) {
     notes: t.notes || "",
     passenger: t.passenger || "",
     service: t.service || "AMB",
-    hidden: !!t.hidden,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   };
 }
@@ -198,7 +197,6 @@ function firestoreToTrip(id, data) {
     notes: data.notes || "",
     passenger: data.passenger || "",
     service: data.service || "AMB",
-    hidden: !!data.hidden,
     editing: false
   };
 }
@@ -435,7 +433,6 @@ function startRealtimeListeners() {
         && local.pickupTime === next.pickupTime
         && local.returnTime === next.returnTime
         && local.passenger === next.passenger
-        && local.hidden === next.hidden
         && (local.pickupStatus !== next.pickupStatus || local.returnStatus !== next.returnStatus);
     });
     _applyingRemote = true;
@@ -510,7 +507,6 @@ trips = trips.map(t => ({
   notes: t.notes || "",
   passenger: t.passenger || parsePassenger(t.raw || ""),
   service: t.service || detectService(t.raw || ""),
-  hidden: !!t.hidden,
   editing: false
 }));
 
@@ -525,17 +521,6 @@ function saveData() {
     tabSet("undo", undoStack.slice(-40));
     tabSet("redo", redoStack.slice(-40));
   });
-}
-function saveDataNow() {
-  if (_persistRaf) {
-    cancelAnimationFrame(_persistRaf);
-    _persistRaf = 0;
-  }
-  tabSet("trips", trips);
-  tabSet("drivers", drivers);
-  tabSet("history", histories);
-  tabSet("undo", undoStack.slice(-40));
-  tabSet("redo", redoStack.slice(-40));
 }
 
 function snapshotState() {
@@ -645,7 +630,7 @@ function applyLiveSearch() {
   _searchRaf = 0;
   const list = document.getElementById("allTripsList");
   let rows = list ? list.querySelectorAll("tr[data-trip-id]") : [];
-  const visibleCount = trips.filter(t => !t.hidden).length;
+  const visibleCount = trips.length;
 
   if (!list || rows.length !== visibleCount) {
     renderAllTrips();
@@ -656,7 +641,7 @@ function applyLiveSearch() {
   const byId = new Map(trips.map(t => [t.id, t]));
   rows.forEach(tr => {
     const t = byId.get(tr.dataset.tripId);
-    tr.style.display = (t && !t.hidden && tripMatchesSearch(t)) ? "" : "none";
+    tr.style.display = (t && tripMatchesSearch(t)) ? "" : "none";
   });
   renderDrivers();
 }
@@ -819,7 +804,6 @@ function parseTrip(raw, pickupDriver = "", returnDriver = "", pickupTime = "", r
     notes: parseNotes(raw),
     passenger: parsePassenger(raw),
     service: detectService(" " + text + " "),
-    hidden: false,
     editing: false
   };
 }
@@ -909,7 +893,7 @@ function openAssignTripModal(driverName) {
     document.body.appendChild(modal);
   }
 
-   const allAvailableTrips = sortedTrips(trips.filter(t => !t.hidden && tripMatchesSearch(t)), "all");
+   const allAvailableTrips = sortedTrips(trips.filter(t => tripMatchesSearch(t)), "all");
 
   // Initial render
   modal.innerHTML = `
@@ -1015,38 +999,6 @@ function setDriverTripStatus(id, leg, status) {
   saveData();
   cloudUpsertTrip(t);
   patchStatusUI(t, field);
-}
-
-function changeDriverTripStatus(id, leg) {
-  const t = trips.find(x => x.id === id);
-  if (!t) return;
-  const current = leg === "return" ? t.returnStatus : t.pickupStatus;
-  let modal = document.getElementById("driverStatusModal");
-  if (!modal) {
-    modal = document.createElement("div");
-    modal.id = "driverStatusModal";
-    modal.className = "modal";
-    document.body.appendChild(modal);
-  }
-  const opts = [
-    ["ASSIGNED", "Assigned"],
-    ["LOADED", "Loaded"],
-    ["DONE", "Done"],
-    ["CANCELLED", "Cancel"],
-    ["UNASSIGNED", "Unassigned"]
-  ];
-  const buttons = opts.map(([val, label]) => `
-    <button class="statusChoiceBtn ${statusClass(val)} ${val === current ? 'selectedStatusChoice' : ''}"
-      onclick="setDriverTripStatus('${id}','${leg}','${val}')">${label}</button>`).join("");
-  const route = detectTripRouteByLeg(t.raw, leg);
-  modal.innerHTML = `
-    <div class="modalBox statusModalBox">
-      <div class="modalHead"><b>${escapeHtml(t.passenger || "Trip status")}</b><button class="xBtn" onclick="closeModal('driverStatusModal')">×</button></div>
-      <div class="driverStatusRoute">${escapeHtml(route || "")}</div>
-      <div class="modalHint">Click a status to change directly.</div>
-      <div class="statusChoiceGrid">${buttons}</div>
-    </div>`;
-  modal.style.display = "flex";
 }
 
 function getSavedDriverRowHeight() { return tabGet("driver_row_height", 120); }
@@ -1214,43 +1166,9 @@ function updatePickupDriver(id, value) {
   render();
 }
 
-function updateReturnDriver(id, value) {
-  const t = trips.find(x => x.id === id);
-  if (!t) return;
-  pushUndo();
-  t.returnDriver = value;
-  if (!t.returnStatus) t.returnStatus = "UNASSIGNED";
-  invalidateTripSearch(t);
-  saveData();
-  cloudUpsertTrip(t);
-  render();
-}
-
-function toggleEditTrip(id) {
-  const t = trips.find(x => x.id === id);
-  if (!t) return;
-
-  if (t.editing) {
-    const box = document.getElementById(`editRaw_${id}`);
-    if (box) {
-      t.raw = box.value.trim();
-      let p = parseTrip(t.raw, t.pickupDriver, t.returnDriver, t.pickupTime, t.returnTime);
-      t.passenger = t.passenger || p.passenger;
-      t.notes = t.notes || p.notes;
-      t.service = p.service;
-    }
-  }
-
-  pushUndo();
-  t.editing = !t.editing;
-  saveData();
-  render();
-}
-
 function saveEditOnEnter(e, id) {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
-    toggleEditTrip(id);
   }
 }
 
@@ -1269,18 +1187,6 @@ function updateTripRaw(id, value) {
   render();
 }
 
-function hideTrip(id) {
-  const t = trips.find(x => x.id === id);
-  if (!t) return;
-  pushUndo();
-  t.hidden = true;
-  invalidateTripSearch(t);
-  saveData();
-  cloudUpsertTrip(t);
-  closeTripActionMenus();
-  render();
-}
-
 function deleteTrip(id) {
   if (!confirm("Delete this trip permanently?")) return;
   pushUndo();
@@ -1289,68 +1195,6 @@ function deleteTrip(id) {
   cloudDeleteTrip(id);
   closeTripActionMenus();
   render();
-}
-
-function unhideTrip(id) {
-  const t = trips.find(x => x.id === id);
-  if (!t) return;
-  pushUndo();
-  t.hidden = false;
-  invalidateTripSearch(t);
-  saveData();
-  cloudUpsertTrip(t);
-  render();
-  renderHiddenTripsList();
-}
-
-function unhideAllTrips() {
-  const hidden = trips.filter(t => t.hidden);
-  if (!hidden.length) {
-    alert("No hidden trips.");
-    return;
-  }
-  if (!confirm(`Unhide all ${hidden.length} hidden trip(s)?`)) return;
-  pushUndo();
-  hidden.forEach(t => {
-    t.hidden = false;
-    invalidateTripSearch(t);
-    cloudUpsertTrip(t);
-  });
-  saveData();
-  render();
-  renderHiddenTripsList();
-}
-
-function openHiddenTripsModal() {
-  renderHiddenTripsList();
-  document.getElementById("hiddenTripsModal").style.display = "flex";
-}
-
-function renderHiddenTripsList() {
-  const box = document.getElementById("hiddenTripsList");
-  if (!box) return;
-  const hidden = sortedTrips(trips.filter(t => t.hidden), "all");
-  const countEl = document.getElementById("hiddenTripsCount");
-  if (countEl) countEl.textContent = String(hidden.length);
-
-  if (!hidden.length) {
-    box.innerHTML = `<div class="emptyText">No hidden trips.</div>`;
-    return;
-  }
-
-  box.innerHTML = hidden.map(t => {
-    const route = detectTripRoute(t.raw || "") || "";
-    const service = t.service || detectService(t.raw || "") || "";
-    return `
-      <div class="hiddenTripRow">
-        <div class="hiddenTripInfo">
-          <b>${escapeHtml(t.passenger || "No name")}</b>
-          <span class="hiddenTripMeta">${escapeHtml(t.pickupTime || "ASAP")} · ${escapeHtml(service)}${route ? " · " + escapeHtml(route) : ""}</span>
-          <div class="hiddenTripRaw">${escapeHtml(t.raw || "")}</div>
-        </div>
-        <button class="smallBtn greenBtn" onclick="unhideTrip('${t.id}')">Unhide</button>
-      </div>`;
-  }).join("");
 }
 
 function closeTripActionMenus() {
@@ -1372,6 +1216,193 @@ function toggleTripActionMenu(e, id) {
   }
 }
 
+
+const TRIP_COL_DEFAULT = ["driver", "status", "pickup", "notes", "name", "details"];
+const TRIP_COL_WIDTH_DEFAULT = { driver: 90, status: 60, pickup: 85, notes: 100, name: 100, details: 720 };
+
+function getTripColOrder() {
+  const saved = tabGet("trip_col_order", null);
+  if (!Array.isArray(saved) || !saved.length) return TRIP_COL_DEFAULT.slice();
+  const next = saved.filter(k => TRIP_COL_DEFAULT.includes(k));
+  TRIP_COL_DEFAULT.forEach(k => { if (!next.includes(k)) next.push(k); });
+  return next;
+}
+function setTripColOrder(order) {
+  tabSet("trip_col_order", order);
+}
+
+function getTripColWidthsMap() {
+  const raw = tabGet("trip_col_widths", null);
+  if (raw && !Array.isArray(raw) && typeof raw === "object") return { ...TRIP_COL_WIDTH_DEFAULT, ...raw };
+  const map = { ...TRIP_COL_WIDTH_DEFAULT };
+  if (Array.isArray(raw)) {
+    const order = getTripColOrder();
+    order.forEach((k, i) => { if (raw[i]) map[k] = raw[i]; });
+  }
+  return map;
+}
+function saveTripColWidthsFromTable(table) {
+  const map = getTripColWidthsMap();
+  table.querySelectorAll("colgroup col").forEach(col => {
+    const k = col.dataset.col;
+    if (!k) return;
+    map[k] = Math.round(parseFloat(col.style.width) || col.getBoundingClientRect().width);
+  });
+  tabSet("trip_col_widths", map);
+}
+
+function applyTripColOrderToRow(tr) {
+  const order = getTripColOrder();
+  order.forEach(k => {
+    const td = tr.querySelector(`td[data-col="${k}"]`);
+    if (td) tr.appendChild(td);
+  });
+}
+
+function applyTripColumnLayout() {
+  const table = document.getElementById("tripTable");
+  if (!table) return;
+  const order = getTripColOrder();
+  const widths = getTripColWidthsMap();
+  const headRow = table.querySelector("thead tr");
+  const colgroup = table.querySelector("colgroup");
+  if (headRow) {
+    order.forEach(k => {
+      const th = headRow.querySelector(`th[data-col="${k}"]`);
+      if (th) headRow.appendChild(th);
+    });
+  }
+  if (colgroup) {
+    order.forEach(k => {
+      let col = colgroup.querySelector(`col[data-col="${k}"]`);
+      if (!col) {
+        col = document.createElement("col");
+        col.dataset.col = k;
+      }
+      col.style.width = (widths[k] || TRIP_COL_WIDTH_DEFAULT[k] || 100) + "px";
+      colgroup.appendChild(col);
+    });
+  }
+  table.querySelectorAll("tbody tr").forEach(applyTripColOrderToRow);
+}
+
+function displayedDrivers() {
+  const order = tabGet("driver_col_order", []);
+  if (!Array.isArray(order) || !order.length) return drivers.slice();
+  const byId = new Map(drivers.map(d => [d.id, d]));
+  const seen = new Set();
+  const list = [];
+  order.forEach(id => {
+    const d = byId.get(id);
+    if (d && !seen.has(id)) { list.push(d); seen.add(id); }
+  });
+  drivers.forEach(d => { if (!seen.has(d.id)) list.push(d); });
+  return list;
+}
+function saveDriverColOrderFromTable(table) {
+  const ids = [...table.querySelectorAll("thead th")].map(th => th.dataset.driverId).filter(Boolean);
+  tabSet("driver_col_order", ids);
+}
+function getDriverWidthMap() {
+  const raw = tabGet("driver_col_widths", {});
+  if (raw && !Array.isArray(raw) && typeof raw === "object") return { ...raw };
+  const map = {};
+  if (Array.isArray(raw)) {
+    displayedDrivers().forEach((d, i) => { if (raw[i]) map[d.id] = raw[i]; });
+  }
+  return map;
+}
+
+function reorderTableColumns(table, fromIndex, toIndex) {
+  if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return false;
+  const move = (parent) => {
+    if (!parent) return;
+    const kids = [...parent.children];
+    if (fromIndex >= kids.length || toIndex >= kids.length) return;
+    const el = kids[fromIndex];
+    parent.insertBefore(el, kids[toIndex]);
+  };
+  move(table.querySelector("colgroup"));
+  move(table.querySelector("thead tr"));
+  table.querySelectorAll("tbody tr").forEach(move);
+  return true;
+}
+
+function setupColumnDrag(table, onDrop) {
+  if (!table) return;
+  const headRow = table.querySelector("thead tr");
+  if (!headRow) return;
+  headRow.querySelectorAll("th").forEach((th, index) => {
+    if (th.dataset.dragBound === "1") return;
+    th.dataset.dragBound = "1";
+    th.addEventListener("pointerdown", e => {
+      if (e.button && e.button !== 0) return;
+      if (e.target.closest(".driverColResizer, .colResizer, .driverNameBtn, .driverNoteInput, textarea, input, select, button")) return;
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const from = [...headRow.children].indexOf(th);
+      let dragging = false;
+      let lastTarget = -1;
+      function targetIndex(clientX) {
+        const ths = [...headRow.children];
+        for (let i = 0; i < ths.length; i++) {
+          const r = ths[i].getBoundingClientRect();
+          if (clientX < r.left + r.width / 2) return i;
+        }
+        return ths.length - 1;
+      }
+      function onMove(ev) {
+        if (!dragging) {
+          if (Math.abs(ev.clientX - startX) < 8 && Math.abs(ev.clientY - startY) < 8) return;
+          dragging = true;
+          document.body.classList.add("draggingCol");
+          th.classList.add("colDragging");
+        }
+        const to = targetIndex(ev.clientX);
+        if (to !== lastTarget) {
+          headRow.querySelectorAll("th").forEach(x => x.classList.remove("colDropTarget"));
+          if (to !== from && headRow.children[to]) headRow.children[to].classList.add("colDropTarget");
+          lastTarget = to;
+        }
+      }
+      function onUp(ev) {
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onUp);
+        document.body.classList.remove("draggingCol");
+        th.classList.remove("colDragging");
+        headRow.querySelectorAll("th").forEach(x => x.classList.remove("colDropTarget"));
+        if (!dragging) return;
+        const to = targetIndex(ev.clientX);
+        if (to !== from) onDrop(from, to);
+      }
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+    });
+  });
+}
+
+function setupPointerResize(handle, onMovePx, onEnd) {
+  handle.addEventListener("pointerdown", e => {
+    if (e.button && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+    document.body.classList.add("resizingCol");
+    function move(ev) { onMovePx(ev.clientX - startX, ev.clientY - startY); }
+    function up() {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      document.body.classList.remove("resizingCol");
+      document.body.classList.remove("resizingRow");
+      onEnd();
+    }
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+  });
+}
+
 function createAllTripRow(trip) {
   const tr = document.createElement("tr");
   tr.className = serviceClass(trip.service);
@@ -1382,24 +1413,24 @@ function createAllTripRow(trip) {
   const displayNotes = `${service} :  ${trip._routeCache}`;
 
   tr.innerHTML = `
-    <td><div class="driverAssignCell compactDriverAssign">
+    <td data-col="driver"><div class="driverAssignCell compactDriverAssign">
       <select class="driverSelect" title="Pickup Driver" onchange="updatePickupDriver('${trip.id}',this.value)">${driverOptions(trip.pickupDriver)}</select>
     </div></td>
-    <td><select class="statusSelect ${statusClass(trip.pickupStatus)}" title="Pick status" onchange="this.className='statusSelect '+statusClass(this.value);updateTripField('${trip.id}','pickupStatus',this.value)">${statusOptions(trip.pickupStatus)}</select></td>
-    <td>${timeSelectLazy(trip.pickupTime, "pickup", `updateTripField('${trip.id}','pickupTime',this.value)`)}</td>
-    <td><div class="computedNotes" title="${escapeHtml(trip.notes || "No notes")}">${escapeHtml(displayNotes)}</div></td>
-    <td><textarea class="patientInput patientTextArea" rows="1" onchange="updateTripField('${trip.id}','passenger',this.value)">${escapeHtml(trip.passenger)}</textarea></td>
-    <td><div class="tripDetailCell">
+    <td data-col="status"><select class="statusSelect ${statusClass(trip.pickupStatus)}" title="Pick status" onchange="this.className='statusSelect '+statusClass(this.value);updateTripField('${trip.id}','pickupStatus',this.value)">${statusOptions(trip.pickupStatus)}</select></td>
+    <td data-col="pickup">${timeSelectLazy(trip.pickupTime, "pickup", `updateTripField('${trip.id}','pickupTime',this.value)`)}</td>
+    <td data-col="notes"><div class="computedNotes" title="${escapeHtml(trip.notes || "No notes")}">${escapeHtml(displayNotes)}</div></td>
+    <td data-col="name"><textarea class="patientInput patientTextArea" rows="1" onchange="updateTripField('${trip.id}','passenger',this.value)">${escapeHtml(trip.passenger)}</textarea></td>
+    <td data-col="details"><div class="tripDetailCell">
       <textarea class="tripDetailsInput editableTripDetails" rows="1" onchange="updateTripRaw('${trip.id}',this.value)">${escapeHtml(trip.raw)}</textarea>
       <div class="tripActionWrap">
         <button type="button" class="tripActionBtn" title="Trip actions" onclick="toggleTripActionMenu(event,'${trip.id}')">▾</button>
         <div id="tripActionMenu_${trip.id}" class="tripActionMenu">
-          <button type="button" onclick="hideTrip('${trip.id}')">Hide trip</button>
           <button type="button" class="tripActionDelete" onclick="deleteTrip('${trip.id}')">Delete trip</button>
         </div>
       </div>
     </div></td>`;
 
+  applyTripColOrderToRow(tr);
   return tr;
 }
 
@@ -1495,7 +1526,6 @@ function updateSummaryCountsOnly() {
   setTxt("loadedCount", loaded);
   setTxt("doneCount", done);
   setTxt("cancelledCount", cancelled);
-  setTxt("hiddenTripsCount", String(hidden));
 }
 
 function patchStatusUI(t, field) {
@@ -1527,18 +1557,22 @@ function createDriverTable() {
   table.className = "driverTable";
   table.id = "driverTable";
 
+  const viewDrivers = displayedDrivers();
+  const widthMap = getDriverWidthMap();
   const colgroup = document.createElement("colgroup");
-  drivers.forEach((d, i) => {
+  viewDrivers.forEach((d) => {
     const col = document.createElement("col");
-    col.style.width = getSavedDriverColWidth(i) || "150px";
+    col.dataset.driverId = d.id;
+    col.style.width = (widthMap[d.id] || 150) + "px";
     colgroup.appendChild(col);
   });
 
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
-  drivers.forEach((driver, i) => {
+  viewDrivers.forEach((driver) => {
     const th = document.createElement("th");
     th.dataset.driverName = driver.name;
+    th.dataset.driverId = driver.id;
     th.innerHTML = `
       <div class="driverHeaderCell">
         <button class="driverNameBtn" title="Click to assign trip" onclick="openAssignTripModal('${escapeHtml(driver.name)}')">${escapeHtml(driver.name)}</button>
@@ -1554,7 +1588,7 @@ function createDriverTable() {
   const savedH = getSavedDriverRowHeight();
   row.style.height = savedH + "px";
   const tripIndex = buildDriverTripIndex();
-  drivers.forEach(driver => {
+  viewDrivers.forEach(driver => {
     const td = document.createElement("td");
     td.dataset.driverName = driver.name;
     td.style.height = savedH + "px";
@@ -1591,56 +1625,61 @@ function setupResizableDriverTable() {
   const cols = table.querySelectorAll("colgroup col");
   setDriverTablePixelWidth(table, cols);
   ths.forEach((th, i) => {
-    if (th.querySelector(".driverColResizer")) return;
-    const handle = document.createElement("span");
-    handle.className = "driverColResizer";
-    th.appendChild(handle);
-    let startX = 0, startW = 0;
-    handle.addEventListener("mousedown", e => {
-      e.preventDefault();
-      startX = e.clientX;
-      startW = cols[i].getBoundingClientRect().width;
-      document.body.classList.add("resizingCol");
-      function onMove(ev) {
-        const width = Math.max(1, startW + ev.clientX - startX);
+    if (!th.querySelector(".driverColResizer")) {
+      const handle = document.createElement("span");
+      handle.className = "driverColResizer";
+      handle.title = "Drag edge to resize";
+      th.appendChild(handle);
+      const startW = () => cols[i].getBoundingClientRect().width;
+      let base = 0;
+      setupPointerResize(handle, (dx) => {
+        if (!base) base = startW();
+        const width = Math.max(48, base + dx);
         cols[i].style.width = width + "px";
         setDriverTablePixelWidth(table, cols);
-      }
-      function onUp() {
-        const widths = [...cols].map(c => Math.round(parseFloat(c.style.width) || c.getBoundingClientRect().width));
-        tabSet("driver_col_widths", widths);
+      }, () => {
+        base = 0;
+        const map = getDriverWidthMap();
+        cols.forEach(c => {
+          if (c.dataset.driverId) {
+            map[c.dataset.driverId] = Math.round(parseFloat(c.style.width) || c.getBoundingClientRect().width);
+          }
+        });
+        tabSet("driver_col_widths", map);
         setDriverTablePixelWidth(table, cols);
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-        document.body.classList.remove("resizingCol");
+      });
+    }
+  });
+  setupColumnDrag(table, (from, to) => {
+    if (!reorderTableColumns(table, from, to)) return;
+    saveDriverColOrderFromTable(table);
+    const map = getDriverWidthMap();
+    cols.forEach(c => {
+      if (c.dataset.driverId) {
+        map[c.dataset.driverId] = Math.round(parseFloat(c.style.width) || c.getBoundingClientRect().width);
       }
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
     });
+    tabSet("driver_col_widths", map);
   });
 }
 
 function setupDriverRowResizer(wrap, handle) {
-  let startY = 0, startH = 0;
-  handle.addEventListener("mousedown", e => {
-    e.preventDefault();
-    const row = wrap.querySelector("tbody tr");
-    startY = e.clientY;
-    startH = row ? row.getBoundingClientRect().height : getSavedDriverRowHeight();
+  document.body.classList.remove("resizingRow");
+  let base = 0;
+  setupPointerResize(handle, (dx, dy) => {
     document.body.classList.add("resizingRow");
-    function onMove(ev) {
-      const h = Math.max(20, startH + ev.clientY - startY);
-      wrap.querySelectorAll("tbody tr, tbody td, .driverTrips").forEach(el => { el.style.height = h + "px"; el.style.maxHeight = h + "px"; });
-    }
-    function onUp() {
+    document.body.classList.remove("resizingCol");
+    if (!base) {
       const row = wrap.querySelector("tbody tr");
-      saveDriverRowHeight(row ? row.getBoundingClientRect().height : startH);
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.classList.remove("resizingRow");
+      base = row ? row.getBoundingClientRect().height : getSavedDriverRowHeight();
     }
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    const h = Math.max(20, base + dy);
+    wrap.querySelectorAll("tbody tr, tbody td, .driverTrips").forEach(el => { el.style.height = h + "px"; el.style.maxHeight = h + "px"; });
+  }, () => {
+    const row = wrap.querySelector("tbody tr");
+    saveDriverRowHeight(row ? row.getBoundingClientRect().height : base);
+    base = 0;
+    document.body.classList.remove("resizingRow");
   });
 }
 
@@ -1648,7 +1687,7 @@ function renderAllTrips() {
   const list = document.getElementById("allTripsList");
   const frag = document.createDocumentFragment();
   const q = searchQuery.trim();
-  sortedTrips(trips.filter(t => !t.hidden), "all").forEach(t => {
+  sortedTrips(trips, "all").forEach(t => {
     const tr = createAllTripRow(t);
     if (q && !tripMatchesSearch(t)) tr.style.display = "none";
     frag.appendChild(tr);
@@ -1683,7 +1722,6 @@ function render() {
     _renderRaf = 0;
     let total = 0, unassigned = 0, assigned = 0, loaded = 0, done = 0, cancelled = 0, hidden = 0;
     for (const t of trips) {
-      if (t.hidden) { hidden++; continue; }
       total++;
       if (!t.pickupDriver && !t.returnDriver) unassigned++;
       if (t.pickupDriver || t.returnDriver) assigned++;
@@ -1697,8 +1735,6 @@ function render() {
     document.getElementById("loadedCount").textContent = loaded;
     document.getElementById("doneCount").textContent = done;
     document.getElementById("cancelledCount").textContent = cancelled;
-    const hiddenCountEl = document.getElementById("hiddenTripsCount");
-    if (hiddenCountEl) hiddenCountEl.textContent = String(hidden);
     renderDrivers();
     renderAllTrips();
   });
@@ -1706,50 +1742,40 @@ function render() {
 
 /* Excel-like table column resizing */
 function applySavedTripColWidths() {
-  const table = document.getElementById("tripTable");
-  if (!table) return;
-  const widths = tabGet("trip_col_widths", []);
-  const cols = table.querySelectorAll("colgroup col");
-  cols.forEach((col, i) => { if (widths[i]) col.style.width = widths[i] + "px"; });
+  applyTripColumnLayout();
 }
 function setupResizableTable() {
   const table = document.getElementById("tripTable");
   if (!table) return;
-  applySavedTripColWidths();
+  applyTripColumnLayout();
   const ths = table.querySelectorAll("thead th");
   const cols = table.querySelectorAll("colgroup col");
-
   ths.forEach((th, i) => {
-    if (th.querySelector(".colResizer")) return;
-    const handle = document.createElement("span");
-    handle.className = "colResizer";
-    th.appendChild(handle);
-
-    let startX = 0;
-    let startW = 0;
-
-    handle.addEventListener("mousedown", e => {
-      e.preventDefault();
-      startX = e.clientX;
-      startW = cols[i].getBoundingClientRect().width;
-      document.body.classList.add("resizingCol");
-
-      function onMove(ev) {
-        const width = Math.max(1, startW + ev.clientX - startX);
-        cols[i].style.width = width + "px";
-      }
-
-      function onUp() {
-        const widths = [...cols].map(c => Math.round(c.getBoundingClientRect().width));
-        tabSet("trip_col_widths", widths);
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-        document.body.classList.remove("resizingCol");
-      }
-
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    });
+    if (!th.querySelector(".colResizer")) {
+      const handle = document.createElement("span");
+      handle.className = "colResizer";
+      handle.title = "Drag edge to resize";
+      th.appendChild(handle);
+      let base = 0;
+      setupPointerResize(handle, (dx) => {
+        const col = table.querySelector(`colgroup col[data-col="${th.dataset.col}"]`) || cols[i];
+        if (!col) return;
+        if (!base) base = col.getBoundingClientRect().width;
+        col.style.width = Math.max(40, base + dx) + "px";
+      }, () => {
+        base = 0;
+        saveTripColWidthsFromTable(table);
+      });
+    }
+  });
+  setupColumnDrag(table, (from, to) => {
+    const order = getTripColOrder();
+    if (from >= order.length || to >= order.length) return;
+    const [moved] = order.splice(from, 1);
+    order.splice(to, 0, moved);
+    setTripColOrder(order);
+    applyTripColumnLayout();
+    saveTripColWidthsFromTable(table);
   });
 }
 
@@ -1769,7 +1795,6 @@ document.addEventListener("click", e => {
 document.addEventListener("mousedown", e => {
   if (e.target.id === "addTripModal") closeAddTripByOutside();
   if (e.target.id === "driversModal") closeModal("driversModal");
-  if (e.target.id === "hiddenTripsModal") closeModal("hiddenTripsModal");
   if (e.target.id === "historyModal") closeModal("historyModal");
   if (e.target.id === "importTripModal") closeModal("importTripModal");
   if (e.target.id === "assignDriverModal") closeModal("assignDriverModal");
@@ -1777,8 +1802,6 @@ document.addEventListener("mousedown", e => {
 });
 
 /* Edit menu */
-function clearAllTrips() { clearAllData(); }
-
 function clearAllTripsData() {
   if (!confirm("Clear all added trips? Drivers will stay.")) return;
   pushUndo();
@@ -1811,7 +1834,7 @@ function clearAllData() {
   histories = [];
   undoStack = [];
   redoStack = [];
-  ["trips", "drivers", "history", "undo", "redo", "trip_col_widths", "driver_col_widths", "driver_row_height"].forEach(tabRemove);
+  ["trips", "drivers", "history", "undo", "redo", "trip_col_widths", "driver_col_widths", "driver_row_height", "trip_col_order", "driver_col_order"].forEach(tabRemove);
   saveData();
   render();
 }
@@ -1841,7 +1864,6 @@ function addDriverFromModal() {
   renderDriversManager();
   render();
 }
-function addDriver() { openDriversModal(); }
 function renameDriver(id) {
   const d = drivers.find(x => x.id === id);
   if (!d) return;
@@ -1923,7 +1945,7 @@ function renderDriversManager() {
       <b>${escapeHtml(d.name)}</b>
       <button onclick="moveDriver('${d.id}',-1)">↑</button>
       <button onclick="moveDriver('${d.id}',1)">↓</button>
-      <button class="editBtn" onclick="renameDriver('${d.id}')">Edit</button>
+      <button class="blueBtn" onclick="renameDriver('${d.id}')">Edit</button>
       <button class="deleteBtn" onclick="deleteDriver('${d.id}')">Delete</button>
     </div>`).join("") || `<div class="emptyText">No drivers added.</div>`;
 }
@@ -2384,7 +2406,7 @@ function renderImportedTrips() {
     const addAllContainer = document.createElement("div");
     addAllContainer.style.marginBottom = "12px";
     const addAllBtn = document.createElement("button");
-    addAllBtn.className = "smallBtn greenBtn";
+    addAllBtn.className = "smallBtn blueBtn";
     addAllBtn.style.fontSize = "13px";
     addAllBtn.style.padding = "8px 16px";
     const pending = importedDisplayTrips.filter(t => !t.added && !String(t.line || "").startsWith("(REMOVED)")).length;
