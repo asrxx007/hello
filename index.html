@@ -15,7 +15,7 @@
     <h2>Hallo</h2>
     <div class="searchWrap">
       <span class="searchBox">
-        <input id="quickSearch" placeholder="Search anything" oninput="setQuickSearch(this.value)" />
+        <input id="quickSearch" placeholder="Search anything ( / )" title="Press / or Ctrl+K to search" oninput="setQuickSearch(this.value)" />
         <button id="quickSearchClear" class="searchClearBtn" type="button" onclick="clearQuickSearch()" title="Clear search">×</button>
       </span>
     </div>
@@ -85,8 +85,8 @@
     <div class="sectionTitle allTripsTitleRow">
       <span>All Added Trips</span>
       <div style="display:flex;gap:6px;">
-        <button class="smallBtn blueBtn" onclick="openAddTripModal()">Add Trip</button>
-        <button class="smallBtn blueBtn" onclick="openImportTripModal()">Import</button>
+        <button class="smallBtn blueBtn" title="Press N" onclick="openAddTripModal()">Add Trip</button>
+        <button class="smallBtn blueBtn" title="import csv" onclick="openImportTripModal()">Import</button>
       </div>
     </div>
     <div class="tripTableWrap">

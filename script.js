@@ -441,13 +441,15 @@ function startRealtimeListeners() {
         const next = firestoreToTrip(ch.doc.id, ch.doc.data());
         const local = trips.find(x => x.id === ch.doc.id);
         if (!local) return;
+        const oldPickupStatus = local.pickupStatus;
+        const oldReturnStatus = local.returnStatus;
         const pickupChanged = local.pickupStatus !== next.pickupStatus;
         const returnChanged = local.returnStatus !== next.returnStatus;
         local.pickupStatus = next.pickupStatus;
         local.returnStatus = next.returnStatus;
         invalidateTripSearch(local);
-        if (pickupChanged) patchStatusUI(local, "pickupStatus");
-        if (returnChanged) patchStatusUI(local, "returnStatus");
+        if (pickupChanged) patchStatusUI(local, "pickupStatus", oldPickupStatus);
+        if (returnChanged) patchStatusUI(local, "returnStatus", oldReturnStatus);
       });
       saveData();
     } else {
@@ -527,7 +529,15 @@ function snapshotState() {
   return {
     trips: JSON.parse(JSON.stringify(trips)),
     drivers: JSON.parse(JSON.stringify(drivers)),
-    histories: JSON.parse(JSON.stringify(histories))
+    // PERF FIX: `histories` can hold many full saved boards (unbounded, see
+    // saveHistory()). Deep-cloning it on every single status change / driver
+    // assignment (pushUndo runs before almost every action) was the main
+    // cause of the app slowing down the longer a board had been in use.
+    // Saved-history entries are never mutated in place after creation —
+    // only added/removed — so a shallow copy of the array is enough to
+    // make undo/redo of "Save History" / "Delete History" work correctly,
+    // without re-serializing every trip inside every saved snapshot.
+    histories: histories.slice()
   };
 }
 
@@ -869,18 +879,23 @@ function assignTripToDriver(driverName, tripId, leg) {
   const t = trips.find(x => x.id === tripId);
   if (!t) return;
   pushUndo();
+  let oldDriver;
   if (leg === "return") {
+    oldDriver = t.returnDriver;
     t.returnDriver = driverName;
     if (!t.returnStatus) t.returnStatus = "UNASSIGNED";
   } else {
+    oldDriver = t.pickupDriver;
     t.pickupDriver = driverName;
     if (!t.pickupStatus) t.pickupStatus = "UNASSIGNED";
+    patchTripPickupDriverSelect(t);
   }
   invalidateTripSearch(t);
   saveData();
   cloudUpsertTrip(t);
   closeModal("assignDriverModal");
-  render();
+  // PERF FIX: patch instead of a full render() of the whole board.
+  patchDriverAssignmentUI(oldDriver, driverName);
 }
 
 function openAssignTripModal(driverName) {
@@ -994,11 +1009,12 @@ function setDriverTripStatus(id, leg, status) {
   const field = leg === "return" ? "returnStatus" : "pickupStatus";
   if (t[field] === status) return;
   pushUndo();
+  const oldValue = t[field];
   t[field] = status;
   invalidateTripSearch(t);
   saveData();
   cloudUpsertTrip(t);
-  patchStatusUI(t, field);
+  patchStatusUI(t, field, oldValue);
 }
 
 function getSavedDriverRowHeight() { return tabGet("driver_row_height", 120); }
@@ -1048,6 +1064,11 @@ function statusClass(status) {
   return "";
 }
 
+/** Trips in these statuses drop to the bottom of the "All Added Trips" list. */
+function isFinishedStatus(status) {
+  return status === "DONE" || status === "CANCELLED";
+}
+
 function serviceClass(service) {
   if (service === "WC") return "wc";
   if (service === "GUR") return "gur";
@@ -1056,9 +1077,23 @@ function serviceClass(service) {
 }
 
 function sortedTrips(list = trips, mode = "normal") {
+  if (mode === "all") {
+    // Show active trips (not yet Done/Cancelled) first, sorted by time;
+    // Done/Cancelled trips are kept in the same list further down so they
+    // can still be reached by scrolling instead of disappearing.
+    const active = [];
+    const finished = [];
+    for (const t of list) {
+      (isFinishedStatus(t.pickupStatus) ? finished : active).push(t);
+    }
+    const byTime = (a, b) => allTripsSortMinutes(a) - allTripsSortMinutes(b);
+    active.sort(byTime);
+    finished.sort(byTime);
+    return active.concat(finished);
+  }
   return [...list].sort((a, b) => {
-    const av = mode === "all" ? allTripsSortMinutes(a) : timeToMinutes(a.pickupTime);
-    const bv = mode === "all" ? allTripsSortMinutes(b) : timeToMinutes(b.pickupTime);
+    const av = timeToMinutes(a.pickupTime);
+    const bv = timeToMinutes(b.pickupTime);
     return av - bv;
   });
 }
@@ -1142,13 +1177,14 @@ function updateTripField(id, field, value, renderNow = true) {
   if (!t) return;
   if (field === "pickupTime" || field === "returnTime") value = normalizeTime(value);
   pushUndo();
+  const oldValue = t[field];
   t[field] = value;
   invalidateTripSearch(t);
   saveData();
   cloudUpsertTrip(t);
   if (!renderNow) return;
   if (field === "pickupStatus" || field === "returnStatus") {
-    patchStatusUI(t, field);
+    patchStatusUI(t, field, oldValue);
     return;
   }
   render();
@@ -1158,12 +1194,15 @@ function updatePickupDriver(id, value) {
   const t = trips.find(x => x.id === id);
   if (!t) return;
   pushUndo();
+  const oldDriver = t.pickupDriver;
   t.pickupDriver = value;
   if (!t.pickupStatus) t.pickupStatus = "UNASSIGNED";
   invalidateTripSearch(t);
   saveData();
   cloudUpsertTrip(t);
-  render();
+  // PERF FIX: patch the two affected driver columns + counts instead of a
+  // full render() of the whole board.
+  patchDriverAssignmentUI(oldDriver, value);
 }
 
 function saveEditOnEnter(e, id) {
@@ -1558,11 +1597,39 @@ function updateSummaryCountsOnly() {
   setTxt("cancelledCount", cancelled);
 }
 
-function patchStatusUI(t, field) {
-  patchTripStatusRow(t);
+function patchStatusUI(t, field, oldValue) {
+  // If the pickup status just crossed the active/finished (Done/Cancelled)
+  // boundary, the row needs to move to the other part of the list — patch
+  // the table order via a lightweight rebuild of just this table.
+  // Otherwise a simple in-place patch is enough (no reordering needed).
+  if (field === "pickupStatus" && isFinishedStatus(oldValue) !== isFinishedStatus(t.pickupStatus)) {
+    renderAllTrips();
+  } else {
+    patchTripStatusRow(t);
+  }
   const driverName = field === "returnStatus" ? t.returnDriver : t.pickupDriver;
   refreshDriverColumn(driverName);
   updateSummaryCountsOnly();
+}
+
+/**
+ * PERF FIX: assigning a driver used to call full render(), which wipes and
+ * rebuilds the whole trips table AND every driver's column from scratch.
+ * Assigning a driver only ever affects (at most) two driver columns plus
+ * the summary counts, so patch just those instead — same approach the
+ * existing patchStatusUI() already used for status changes.
+ */
+function patchDriverAssignmentUI(oldDriver, newDriver) {
+  if (oldDriver) refreshDriverColumn(oldDriver);
+  if (newDriver && newDriver !== oldDriver) refreshDriverColumn(newDriver);
+  updateSummaryCountsOnly();
+}
+
+function patchTripPickupDriverSelect(t) {
+  const tr = document.querySelector(`#allTripsList tr[data-trip-id="${t.id}"]`);
+  if (!tr) return;
+  const sel = tr.querySelector(".driverSelect");
+  if (sel) sel.value = t.pickupDriver || "";
 }
 
 function driverAssignedTrips(driverName, index) {
@@ -1831,6 +1898,74 @@ document.addEventListener("mousedown", e => {
   if (e.target.id === "driverStatusModal") closeModal("driverStatusModal");
 });
 
+/* ===== Keyboard shortcuts =====
+   "/" or Ctrl/Cmd+K -> focus the quick search box
+   "n"               -> open Add Trip
+   "Esc"             -> close whichever modal is open
+   Letter shortcuts only fire when you're not already typing in a field
+   and no modal is open, so they never interfere with normal typing. */
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+}
+
+function isAnyModalOpen() {
+  return [...document.querySelectorAll(".modal")].some(m => m.style.display === "flex");
+}
+
+function closeAnyOpenModal() {
+  const addTripModal = document.getElementById("addTripModal");
+  if (addTripModal && addTripModal.style.display === "flex") {
+    closeAddTripByOutside(); // keeps existing "save if not empty" behavior
+    return true;
+  }
+  const ids = ["driversModal", "historyModal", "importTripModal", "assignDriverModal", "driverStatusModal"];
+  for (const id of ids) {
+    const modal = document.getElementById(id);
+    if (modal && modal.style.display === "flex") {
+      closeModal(id);
+      return true;
+    }
+  }
+  return false;
+}
+
+function focusQuickSearch() {
+  const input = document.getElementById("quickSearch");
+  if (!input) return;
+  input.focus();
+  input.select();
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    if (closeAnyOpenModal()) e.preventDefault();
+    return;
+  }
+
+  // Ctrl/Cmd+K jumps to search from anywhere, even while typing elsewhere
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    focusQuickSearch();
+    return;
+  }
+
+  if (isTypingTarget(e.target) || isAnyModalOpen()) return;
+
+  if (e.key === "/") {
+    e.preventDefault(); // stop Firefox's built-in quick-find from also opening
+    focusQuickSearch();
+    return;
+  }
+
+  if (e.key.toLowerCase() === "n") {
+    e.preventDefault();
+    openAddTripModal();
+    return;
+  }
+});
+
 /* Edit menu */
 function clearAllTripsData() {
   if (!confirm("Clear all added trips? Drivers will stay.")) return;
@@ -1981,6 +2116,8 @@ function renderDriversManager() {
 }
 
 /* History */
+const MAX_SAVED_HISTORIES = 30;
+
 function saveHistory() {
   const stamp = new Date().toLocaleString("en-IN", { hour12: true });
   const item = {
@@ -1991,6 +2128,11 @@ function saveHistory() {
   };
   pushUndo();
   histories.unshift(item);
+  // PERF FIX: histories had no cap, so every saved snapshot permanently
+  // added a full trips+drivers copy that got re-touched by every future
+  // pushUndo() and every saveData() write to sessionStorage. Keep only the
+  // most recent MAX_SAVED_HISTORIES.
+  if (histories.length > MAX_SAVED_HISTORIES) histories.length = MAX_SAVED_HISTORIES;
   saveData();
 
   const blob = new Blob([JSON.stringify(item, null, 2)], { type: "application/json" });
@@ -2004,6 +2146,35 @@ function saveHistory() {
 
 function importHistoryJson(){
   document.getElementById("historyImportFile").click();
+}
+
+/**
+ * Merge an imported history snapshot into the CURRENT board instead of
+ * replacing it. Imported trips and drivers all get fresh ids so they can
+ * never collide with (or silently overwrite) anything already on the
+ * board — drivers are appended even if the name matches an existing
+ * driver (duplicate names are fine, both columns are kept).
+ */
+function appendImportedBoard(historyItem) {
+  const importedTrips = (historyItem.trips || []).map(t => ({
+    ...t,
+    id: makeId(),          // avoid id collisions with existing trips
+    editing: false
+  }));
+
+  const importedDrivers = (historyItem.drivers || [])
+    .map(normalizeDriver)
+    .map(d => ({ ...d, id: makeId() }));  // avoid id collisions with existing drivers
+
+  trips = trips.concat(importedTrips);
+  drivers = drivers.concat(importedDrivers);
+
+  saveData();
+  importedTrips.forEach(t => cloudUpsertTrip(t));
+  importedDrivers.forEach((d, i) => cloudUpsertDriver(d, drivers.length - importedDrivers.length + i));
+  render();
+
+  alert(`Added ${importedTrips.length} trip(s) and ${importedDrivers.length} driver(s) to the current board.`);
 }
 
 async function handleHistoryImport(event){
@@ -2024,16 +2195,19 @@ async function handleHistoryImport(event){
     pushUndo();
 
     histories.unshift(historyItem);
+    if (histories.length > MAX_SAVED_HISTORIES) histories.length = MAX_SAVED_HISTORIES;
 
     saveData();
 
-    if(confirm("History imported successfully.\n\nLoad it now?")){
-      trips = JSON.parse(JSON.stringify(historyItem.trips));
-      drivers = JSON.parse(JSON.stringify(historyItem.drivers))
-        .map(normalizeDriver);
+    const importedTripCount = historyItem.trips.length;
+    const importedDriverCount = historyItem.drivers.length;
 
-      saveData();
-      render();
+    if (confirm(
+      `History imported (saved to the History list).\n\n` +
+      `Add its ${importedTripCount} trip(s) and ${importedDriverCount} driver(s) to your CURRENT board now?\n` +
+      `(Your existing trips and drivers will be kept — this adds to them, it does not replace them.)`
+    )) {
+      appendImportedBoard(historyItem);
     }
 
     renderHistoryList();
