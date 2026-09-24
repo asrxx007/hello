@@ -311,6 +311,59 @@ async function uploadLocalBoardToCloud() {
 }
 
 /**
+ * Save a snapshot of a board into the History list without any prompts
+ * or file downloads. Used to guarantee that a device's local work is
+ * never silently lost when a login merge decision discards it.
+ */
+function backupLocalBoard(localTrips, localDrivers) {
+  histories.unshift({
+    id: makeId(),
+    savedAt: "Auto-backup (before cloud sign-in) — " + new Date().toLocaleString("en-IN", { hour12: true }),
+    trips: JSON.parse(JSON.stringify(localTrips)),
+    drivers: JSON.parse(JSON.stringify(localDrivers))
+  });
+  if (histories.length > MAX_SAVED_HISTORIES) histories.length = MAX_SAVED_HISTORIES;
+  saveData();
+}
+
+function formatMergeCounts(tripsList, driversList) {
+  return `${tripsList.length} trip${tripsList.length === 1 ? "" : "s"}, ${driversList.length} driver${driversList.length === 1 ? "" : "s"}`;
+}
+
+/**
+ * Shows the loginMergeModal and resolves to true if the user picked
+ * "keep local", false if they picked "use cloud". Unlike window.confirm()
+ * this doesn't block the page, can't be dismissed accidentally with Esc/
+ * Enter, and clearly labels each button instead of relying on OK/Cancel.
+ */
+function openLoginMergeModal(localTrips, localDrivers, cloudTrips, cloudDrivers) {
+  return new Promise(resolve => {
+    const modal = document.getElementById("loginMergeModal");
+    const body = document.getElementById("loginMergeBody");
+    const keepBtn = document.getElementById("loginMergeKeepLocal");
+    const cloudBtn = document.getElementById("loginMergeUseCloud");
+
+    body.innerHTML = `
+      <p>This device has board data that hasn't been synced yet, and the cloud board already has data too.</p>
+      <p><b>This device:</b> ${formatMergeCounts(localTrips, localDrivers)}</p>
+      <p><b>Cloud:</b> ${formatMergeCounts(cloudTrips, cloudDrivers)}</p>
+      <p>Which one should this device use from now on?</p>
+    `;
+
+    function cleanup(result) {
+      keepBtn.onclick = null;
+      cloudBtn.onclick = null;
+      modal.style.display = "none";
+      resolve(result);
+    }
+
+    keepBtn.onclick = () => cleanup(true);
+    cloudBtn.onclick = () => cleanup(false);
+    modal.style.display = "flex";
+  });
+}
+
+/**
  * After login, cloud snapshot would wipe offline work.
  * Decide: keep local (upload) vs use cloud.
  * Returns true if local was kept (caller should skip applying this remote snap).
@@ -330,7 +383,7 @@ async function handleLoginLocalVsCloud(cloudTrips, cloudDrivers) {
     return false;
   }
 
-  // Local work exists, cloud empty → keep local and push up
+  // Local work exists, cloud empty → no ambiguity, keep local and push up
   if (hasLocalTrips && !hasCloudTrips) {
     trips = localTrips.map(t => ({ ...t }));
     drivers = localDrivers.map(normalizeDriver);
@@ -347,15 +400,12 @@ async function handleLoginLocalVsCloud(cloudTrips, cloudDrivers) {
     return true;
   }
 
-  // Both sides have data → ask user
+  // Both sides have data → this is a real conflict. Back up this device's
+  // board BEFORE asking, so picking "Use cloud" can never lose it.
   if (hasLocalTrips && hasCloudTrips) {
-    const msg =
-      "You have local work that is not on the cloud yet.\n\n" +
-      "Local:  " + localTrips.length + " trips, " + localDrivers.length + " drivers\n" +
-      "Cloud:  " + cloudTrips.length + " trips, " + cloudDrivers.length + " drivers\n\n" +
-      "OK = Keep LOCAL and upload to cloud (overwrites matching cloud data)\n" +
-      "Cancel = Use CLOUD board (discard this browser’s local trips)";
-    const keepLocal = confirm(msg);
+    backupLocalBoard(localTrips, localDrivers);
+
+    const keepLocal = await openLoginMergeModal(localTrips, localDrivers, cloudTrips, cloudDrivers);
     if (keepLocal) {
       trips = localTrips.map(t => ({ ...t }));
       drivers = localDrivers.map(normalizeDriver);
@@ -371,7 +421,8 @@ async function handleLoginLocalVsCloud(cloudTrips, cloudDrivers) {
       _loginLocalBackup = null;
       return true;
     }
-    // User chose cloud — fall through and apply remote
+    // User chose cloud — this device's board was already saved to History above.
+    alert("This device's board was saved to History before switching to the cloud board.");
   }
 
   _loginLocalBackup = null;
@@ -546,12 +597,27 @@ function pushUndo() {
   if (undoStack.length > 40) undoStack.shift();
   redoStack = [];
   saveData();
+  updateUndoRedoButtons();
 }
 
 function restoreState(state) {
   trips = (state.trips || []).map(t => ({ ...t, editing: false }));
   drivers = (state.drivers || DEFAULT_DRIVERS).map(normalizeDriver);
   histories = state.histories || histories;
+}
+
+/**
+ * Keep the ← / → buttons reflecting whether an undo/redo actually exists.
+ * Without this, both buttons always looked clickable, so making any new
+ * change right after an Undo (which — like any undo/redo system — clears
+ * the redo history, since that "future" no longer exists) looked like
+ * nothing had happened rather than like the redo option was gone.
+ */
+function updateUndoRedoButtons() {
+  const undoBtn = document.getElementById("undoBtn");
+  const redoBtn = document.getElementById("redoBtn");
+  if (undoBtn) undoBtn.disabled = undoStack.length === 0;
+  if (redoBtn) redoBtn.disabled = redoStack.length === 0;
 }
 
 function undoAction() {
@@ -564,6 +630,7 @@ function undoAction() {
   restoreState(last);
   saveData();
   render();
+  updateUndoRedoButtons();
 }
 function redoAction() {
   const next = redoStack.pop();
@@ -575,6 +642,7 @@ function redoAction() {
   restoreState(next);
   saveData();
   render();
+  updateUndoRedoButtons();
 }
 
 function currentLAMinutes() {
@@ -722,46 +790,53 @@ function formatTimeCompact(t) {
   return `${parseInt(m[1], 10)}:${m[2]}${ap}`;
 }
 
-let _timeOptsPickupBase = null;
-let _timeOptsReturnBase = null;
-
-function buildTimeOptionsBase(type) {
-  const special = type === "return" ? ["R/T", "NO", "ASAP"] : ["ASAP", "R/T", "NO"];
-  let html = special.map(v => `<option value="${v}">${v}</option>`).join("");
-  for (let mins = 12 * 60; mins < 36 * 60; mins += 5) {
-    const t = minutesToTime(mins % 1440);
-    html += `<option value="${t}">${t}</option>`;
+/**
+ * Simple time picker: a plain text input backed by a <datalist>.
+ * Click it and start typing a number (e.g. "8") and the browser narrows
+ * the list down to matching times — no custom filtering logic needed.
+ */
+function buildTimeDatalistOptions(type) {
+  const special = type === "return" ? ["R/T", "ASAP"] : ["ASAP", "R/T"];
+  let html = special.map(v => `<option value="${v}">`).join("");
+  for (let mins = 0; mins < 1440; mins += 5) {
+    const t = minutesToTime(mins);
+    html += `<option value="${t}">`;
   }
   return html;
 }
 
-function timeOptions(selected, type = "pickup") {
-  selected = normalizeTime(selected) || (type === "return" ? "R/T" : "ASAP");
-  if (type === "return") {
-    if (!_timeOptsReturnBase) _timeOptsReturnBase = buildTimeOptionsBase("return");
-    return _timeOptsReturnBase.replace(`value="${selected}"`, `value="${selected}" selected`);
-  }
-  if (!_timeOptsPickupBase) _timeOptsPickupBase = buildTimeOptionsBase("pickup");
-  return _timeOptsPickupBase.replace(`value="${selected}"`, `value="${selected}" selected`);
+/** Populates the shared <datalist> elements once at startup. */
+function initTimeDatalists() {
+  const pu = document.getElementById("timeListPickup");
+  const rt = document.getElementById("timeListReturn");
+  if (pu) pu.innerHTML = buildTimeDatalistOptions("pickup");
+  if (rt) rt.innerHTML = buildTimeDatalistOptions("return");
 }
 
-/** Lightweight time select: only current value until user opens it (big speed win with many trips) */
-function timeSelectLazy(selected, type, onchange) {
+function timeInputControl(selected, type, onchange) {
   const val = normalizeTime(selected) || (type === "return" ? "R/T" : "ASAP");
-  return `<select class="timeSelect" data-time-type="${type}" data-filled="0"
-    onfocus="fillTimeOptions(this)" onmousedown="fillTimeOptions(this)"
-    onchange="${onchange}">
-    <option value="${escapeHtml(val)}" selected>${escapeHtml(val)}</option>
-  </select>`;
+  const listId = type === "return" ? "timeListReturn" : "timeListPickup";
+  return `<input type="text" class="timeSelect" autocomplete="off" list="${listId}"
+    value="${escapeHtml(val)}"
+    onchange="${onchange}" />`;
 }
 
-function fillTimeOptions(sel) {
-  if (!sel || sel.dataset.filled === "1") return;
-  const type = sel.dataset.timeType || "pickup";
-  const current = sel.value;
-  sel.innerHTML = timeOptions(current, type);
-  sel.value = current;
-  sel.dataset.filled = "1";
+/**
+ * Resolves whatever the user typed/picked into a clean stored value.
+ * Selecting "ASAP" resolves immediately to the current time instead of
+ * staying as the literal word "ASAP".
+ */
+function resolveTimeInput(el, type) {
+  if (!el) return;
+  const raw = String(el.value || "").trim();
+  const up = raw.toUpperCase();
+  if (up === "ASAP") {
+    el.value = minutesToTime(currentLAMinutes());
+  } else if (up === "R/T" || up === "RT") {
+    el.value = "R/T";
+  } else {
+    el.value = normalizeTime(raw) || (type === "return" ? "R/T" : "ASAP");
+  }
 }
 
 function detectService(text) {
@@ -811,7 +886,7 @@ function parseTrip(raw, pickupDriver = "", returnDriver = "", pickupTime = "", r
     pickupStatus: "UNASSIGNED",
     returnTime: normalizeTime(returnTime) || "R/T",
     returnStatus: "UNASSIGNED",
-    notes: parseNotes(raw),
+    notes: "",
     passenger: parsePassenger(raw),
     service: detectService(" " + text + " "),
     editing: false
@@ -1161,10 +1236,10 @@ function fillAddTripModal() {
   document.getElementById("addTripFields").innerHTML = `
     <div class="addTripGrid">
       <label>Assigned Driver<select id="modalPickupDriver" class="driverSelect">${driverOptions("")}</select></label>
-      <label>Pick Time<select id="modalPickupTime" class="timeSelect">${timeOptions("ASAP", "pickup")}</select></label>
+      <label>Pick Time${timeInputControl("ASAP", "pickup", "resolveTimeInput(this,'pickup')").replace("<input ", '<input id="modalPickupTime" ')}</label>
       <label>Pick Status<select id="modalPickupStatus" class="statusSelect statusUnassigned" onchange="this.className='statusSelect '+statusClass(this.value)">${statusOptions("UNASSIGNED")}</select></label>
       <label>Return Driver<select id="modalReturnDriver" class="driverSelect">${driverOptions("")}</select></label>
-      <label>Return Time<select id="modalReturnTime" class="timeSelect">${timeOptions("R/T", "return")}</select></label>
+      <label>Return Time${timeInputControl("R/T", "return", "resolveTimeInput(this,'return')").replace("<input ", '<input id="modalReturnTime" ')}</label>
       <label>Return Status<select id="modalReturnStatus" class="statusSelect statusUnassigned" onchange="this.className='statusSelect '+statusClass(this.value)">${statusOptions("UNASSIGNED")}</select></label>
       <label>Notes<input id="modalNotes" class="smallTextInput" placeholder="Notes"></label>
       <label>Patient Name<input id="modalPassenger" class="smallTextInput" placeholder="Patient name"></label>
@@ -1219,7 +1294,6 @@ function updateTripRaw(id, value) {
   const parsed = parseTrip(value, t.pickupDriver, t.returnDriver, t.pickupTime, t.returnTime);
   t.service = parsed.service;
   t.passenger = t.passenger || parsed.passenger;
-  t.notes = t.notes || parsed.notes;
   invalidateTripSearch(t);
   saveData();
   cloudUpsertTrip(t);
@@ -1486,8 +1560,8 @@ function createAllTripRow(trip) {
       <select class="driverSelect" title="Pickup Driver" onchange="updatePickupDriver('${trip.id}',this.value)">${driverOptions(trip.pickupDriver)}</select>
     </div></td>
     <td data-col="status"><select class="statusSelect ${statusClass(trip.pickupStatus)}" title="Pick status" onchange="this.className='statusSelect '+statusClass(this.value);updateTripField('${trip.id}','pickupStatus',this.value)">${statusOptions(trip.pickupStatus)}</select></td>
-    <td data-col="pickup">${timeSelectLazy(trip.pickupTime, "pickup", `updateTripField('${trip.id}','pickupTime',this.value)`)}</td>
-    <td data-col="notes"><div class="computedNotes" title="${escapeHtml(trip.notes || "No notes")}">${escapeHtml(displayNotes)}</div></td>
+    <td data-col="pickup">${timeInputControl(trip.pickupTime, "pickup", `resolveTimeInput(this,'pickup');updateTripField('${trip.id}','pickupTime',this.value)`)}</td>
+    <td data-col="notes"><textarea class="notesTextArea" rows="1" title="${escapeHtml(trip.notes || displayNotes)}" onchange="updateTripField('${trip.id}','notes',this.value)">${escapeHtml(trip.notes || displayNotes)}</textarea></td>
     <td data-col="name"><textarea class="patientInput patientTextArea" rows="1" onchange="updateTripField('${trip.id}','passenger',this.value)">${escapeHtml(trip.passenger)}</textarea></td>
     <td data-col="details"><div class="tripDetailCell">
       <textarea class="tripDetailsInput editableTripDetails" rows="1" onchange="updateTripRaw('${trip.id}',this.value)">${escapeHtml(trip.raw)}</textarea>
@@ -2555,7 +2629,6 @@ function addImportedTripToBoard(importTrip) {
   parsed.pickupTime = normalizeTime(importTrip.pickupTime) || "ASAP";
   parsed.returnTime = normalizeTime((importTrip.line.match(/Return@\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i) || [])[1] || "") || "R/T";
   parsed.passenger = importTrip.passenger || parsed.passenger;
-  parsed.notes = importTrip.notes || parsed.notes;
   parsed.service = importTrip.service || parsed.service;
   parsed.pickupStatus = "UNASSIGNED";
   parsed.returnStatus = "UNASSIGNED";
@@ -2586,7 +2659,6 @@ function addAllDisplayedTrips() {
     parsed.pickupTime = normalizeTime(importTrip.pickupTime) || "ASAP";
     parsed.returnTime = normalizeTime((importTrip.line.match(/Return@\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i) || [])[1] || "") || "R/T";
     parsed.passenger = importTrip.passenger || parsed.passenger;
-    parsed.notes = importTrip.notes || parsed.notes;
     parsed.service = importTrip.service || parsed.service;
     parsed.pickupStatus = "UNASSIGNED";
     parsed.returnStatus = "UNASSIGNED";
@@ -2677,8 +2749,10 @@ function updateImportCounts() {
 }
 
 // Final initialization
+initTimeDatalists();
 saveData();
 render();
+updateUndoRedoButtons();
 updateClocks();
 setInterval(updateClocks, 1000);
 initFirebase();

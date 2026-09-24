@@ -80,6 +80,7 @@ button:hover { filter: brightness(.92); }
 .blueBtn { background: #e700ff; }
 .redBtn, .deleteBtn { background: #e700ff; }
 .smallBtn { font-size: 12px; padding: 5px 9px; }
+.smallBtn:disabled { opacity: .35; cursor: not-allowed; }
 .xBtn {
   background: #dc2626; border-radius: 50%;
   width: 28px; height: 28px; padding: 0;
@@ -107,7 +108,7 @@ button:hover { filter: brightness(.92); }
 
 /* ---------- Shared form controls ---------- */
 .driverSelect, .statusSelect, .timeSelect,
-.smallTextInput, .patientInput, .tripDetailsInput {
+.smallTextInput, .patientInput, .tripDetailsInput, .notesTextArea {
   width: 100%; min-width: 0; color: #6a0000;
   border: none; border-radius: 0;
   height: 24px; padding: 2px 4px;
@@ -121,6 +122,12 @@ button:hover { filter: brightness(.92); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   resize: none;
 }
+.notesTextArea {
+  font-weight: 600; color: #1e40af;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  resize: none;
+}
+.notesTextArea::placeholder { color: #93a5c9; font-weight: 500; }
 .tripDetailsInput {
   height: 24px; max-height: 24px;
   resize: none; overflow: auto;
@@ -285,13 +292,6 @@ body.resizingCol, body.resizingRow { user-select: none; }
 .driverAssignCell { display: flex; height: 24px; align-items: stretch; }
 .driverAssignCell select { width: 100%; height: 24px; font-weight: 600; }
 
-.computedNotes {
-  height: 24px; padding: 2px 5px;
-  font-size: 12px; font-weight: 600; color: #1e40af;
-  display: flex; align-items: center;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-
 .tripDetailCell {
   position: relative; height: 24px; padding-right: 26px;
 }
@@ -329,6 +329,11 @@ body.resizingCol, body.resizingRow { user-select: none; }
 .bigModal { width: min(900px, 96vw); }
 .addTripModalBox { width: min(640px, 96vw); }
 .importTripModalBox { width: min(980px, 96vw); max-height: 88vh; }
+
+.loginMergeBody { font-size: 14px; line-height: 1.5; }
+.loginMergeBody p { margin: 0 0 8px; }
+.loginMergeActions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.loginMergeNote { color: #64748b; font-size: 12px; margin-top: 10px; }
 
 .modalHead {
   display: flex; justify-content: space-between; align-items: center;

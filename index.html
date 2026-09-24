@@ -32,8 +32,8 @@
         <span>India: <b id="indiaTime">--</b></span>
         <span>PST: <b id="laTime">--</b></span>
       </div>
-      <button class="smallBtn blueBtn" onclick="undoAction()">←</button>
-      <button class="smallBtn blueBtn" onclick="redoAction()">→</button>
+      <button id="undoBtn" class="smallBtn blueBtn" onclick="undoAction()">←</button>
+      <button id="redoBtn" class="smallBtn blueBtn" onclick="redoAction()">→</button>
       <div class="menuWrap">
         <button class="smallBtn blueBtn" onclick="toggleMenu('historyMenu')">↺</button>
         <div id="historyMenu" class="dropMenu">
@@ -126,6 +126,20 @@
         <button class="redBtn" onclick="clearAllDrivers()">Clear All Drivers</button>
       </div>
       <div id="driversManager"></div>
+    </div>
+  </div>
+
+  <div id="loginMergeModal" class="modal">
+    <div class="modalBox">
+      <div class="modalHead noCloseHead">
+        <b>Local data found on this device</b>
+      </div>
+      <div id="loginMergeBody" class="loginMergeBody"></div>
+      <div class="loginMergeActions">
+        <button id="loginMergeKeepLocal" class="smallBtn blueBtn">Keep this device's data</button>
+        <button id="loginMergeUseCloud" class="smallBtn redBtn">Use cloud data instead</button>
+      </div>
+      <div class="loginMergeNote">Either way, this device's current board is saved to History first, so nothing is lost — you can restore it later from "View Saved History".</div>
     </div>
   </div>
 
