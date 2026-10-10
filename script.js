@@ -18,15 +18,17 @@ const DEFAULT_DRIVERS = [
   { name: "Jagdip", note: "" },
   { name: "Jashan", note: "" },
   { name: "Bobby", note: "" },
-  { name: "xxx", note: "" },
-  { name: "Gurjeet", note: "" },
-  { name: "Gurdip", note: "" },
   { name: "Love", note: "" },
-  { name: "Navkrn", note: "" },
-  { name: "Jass", note: "" },
+  { name: "xxx", note: "" },
+  { name: "zzz", note: "" },
+  { name: "Love", note: "" },
+  { name: "Gurdip", note: "" },
   { name: "Gagan", note: "" },
   { name: "Gurmindr", note: "" },
+  { name: "Jass", note: "" },
+  { name: "Gurjeet", note: "" },
   { name: "Akash", note: "" },
+  { name: "Inder", note: "" },
 ];
 
 let TAB_ID = sessionStorage.getItem("dispatch_tab_id");
@@ -790,53 +792,46 @@ function formatTimeCompact(t) {
   return `${parseInt(m[1], 10)}:${m[2]}${ap}`;
 }
 
-/**
- * Simple time picker: a plain text input backed by a <datalist>.
- * Click it and start typing a number (e.g. "8") and the browser narrows
- * the list down to matching times — no custom filtering logic needed.
- */
-function buildTimeDatalistOptions(type) {
-  const special = type === "return" ? ["R/T", "ASAP"] : ["ASAP", "R/T"];
-  let html = special.map(v => `<option value="${v}">`).join("");
-  for (let mins = 0; mins < 1440; mins += 5) {
-    const t = minutesToTime(mins);
-    html += `<option value="${t}">`;
+let _timeOptsPickupBase = null;
+let _timeOptsReturnBase = null;
+
+function buildTimeOptionsBase(type) {
+  const special = type === "return" ? ["R/T", "NO", "ASAP"] : ["ASAP", "R/T", "NO"];
+  let html = special.map(v => `<option value="${v}">${v}</option>`).join("");
+  for (let mins = 12 * 60; mins < 36 * 60; mins += 5) {
+    const t = minutesToTime(mins % 1440);
+    html += `<option value="${t}">${t}</option>`;
   }
   return html;
 }
 
-/** Populates the shared <datalist> elements once at startup. */
-function initTimeDatalists() {
-  const pu = document.getElementById("timeListPickup");
-  const rt = document.getElementById("timeListReturn");
-  if (pu) pu.innerHTML = buildTimeDatalistOptions("pickup");
-  if (rt) rt.innerHTML = buildTimeDatalistOptions("return");
-}
-
-function timeInputControl(selected, type, onchange) {
-  const val = normalizeTime(selected) || (type === "return" ? "R/T" : "ASAP");
-  const listId = type === "return" ? "timeListReturn" : "timeListPickup";
-  return `<input type="text" class="timeSelect" autocomplete="off" list="${listId}"
-    value="${escapeHtml(val)}"
-    onchange="${onchange}" />`;
-}
-
-/**
- * Resolves whatever the user typed/picked into a clean stored value.
- * Selecting "ASAP" resolves immediately to the current time instead of
- * staying as the literal word "ASAP".
- */
-function resolveTimeInput(el, type) {
-  if (!el) return;
-  const raw = String(el.value || "").trim();
-  const up = raw.toUpperCase();
-  if (up === "ASAP") {
-    el.value = minutesToTime(currentLAMinutes());
-  } else if (up === "R/T" || up === "RT") {
-    el.value = "R/T";
-  } else {
-    el.value = normalizeTime(raw) || (type === "return" ? "R/T" : "ASAP");
+function timeOptions(selected, type = "pickup") {
+  selected = normalizeTime(selected) || (type === "return" ? "R/T" : "ASAP");
+  if (type === "return") {
+    if (!_timeOptsReturnBase) _timeOptsReturnBase = buildTimeOptionsBase("return");
+    return _timeOptsReturnBase.replace(`value="${selected}"`, `value="${selected}" selected`);
   }
+  if (!_timeOptsPickupBase) _timeOptsPickupBase = buildTimeOptionsBase("pickup");
+  return _timeOptsPickupBase.replace(`value="${selected}"`, `value="${selected}" selected`);
+}
+
+/** Lightweight time select: only current value until user opens it (big speed win with many trips) */
+function timeSelectLazy(selected, type, onchange) {
+  const val = normalizeTime(selected) || (type === "return" ? "R/T" : "ASAP");
+  return `<select class="timeSelect" data-time-type="${type}" data-filled="0"
+    onfocus="fillTimeOptions(this)" onmousedown="fillTimeOptions(this)"
+    onchange="${onchange}">
+    <option value="${escapeHtml(val)}" selected>${escapeHtml(val)}</option>
+  </select>`;
+}
+
+function fillTimeOptions(sel) {
+  if (!sel || sel.dataset.filled === "1") return;
+  const type = sel.dataset.timeType || "pickup";
+  const current = sel.value;
+  sel.innerHTML = timeOptions(current, type);
+  sel.value = current;
+  sel.dataset.filled = "1";
 }
 
 function detectService(text) {
@@ -886,7 +881,7 @@ function parseTrip(raw, pickupDriver = "", returnDriver = "", pickupTime = "", r
     pickupStatus: "UNASSIGNED",
     returnTime: normalizeTime(returnTime) || "R/T",
     returnStatus: "UNASSIGNED",
-    notes: "",
+    notes: parseNotes(raw),
     passenger: parsePassenger(raw),
     service: detectService(" " + text + " "),
     editing: false
@@ -1236,10 +1231,10 @@ function fillAddTripModal() {
   document.getElementById("addTripFields").innerHTML = `
     <div class="addTripGrid">
       <label>Assigned Driver<select id="modalPickupDriver" class="driverSelect">${driverOptions("")}</select></label>
-      <label>Pick Time${timeInputControl("ASAP", "pickup", "resolveTimeInput(this,'pickup')").replace("<input ", '<input id="modalPickupTime" ')}</label>
+      <label>Pick Time<select id="modalPickupTime" class="timeSelect">${timeOptions("ASAP", "pickup")}</select></label>
       <label>Pick Status<select id="modalPickupStatus" class="statusSelect statusUnassigned" onchange="this.className='statusSelect '+statusClass(this.value)">${statusOptions("UNASSIGNED")}</select></label>
       <label>Return Driver<select id="modalReturnDriver" class="driverSelect">${driverOptions("")}</select></label>
-      <label>Return Time${timeInputControl("R/T", "return", "resolveTimeInput(this,'return')").replace("<input ", '<input id="modalReturnTime" ')}</label>
+      <label>Return Time<select id="modalReturnTime" class="timeSelect">${timeOptions("R/T", "return")}</select></label>
       <label>Return Status<select id="modalReturnStatus" class="statusSelect statusUnassigned" onchange="this.className='statusSelect '+statusClass(this.value)">${statusOptions("UNASSIGNED")}</select></label>
       <label>Notes<input id="modalNotes" class="smallTextInput" placeholder="Notes"></label>
       <label>Patient Name<input id="modalPassenger" class="smallTextInput" placeholder="Patient name"></label>
@@ -1294,6 +1289,7 @@ function updateTripRaw(id, value) {
   const parsed = parseTrip(value, t.pickupDriver, t.returnDriver, t.pickupTime, t.returnTime);
   t.service = parsed.service;
   t.passenger = t.passenger || parsed.passenger;
+  t.notes = t.notes || parsed.notes;
   invalidateTripSearch(t);
   saveData();
   cloudUpsertTrip(t);
@@ -1554,14 +1550,18 @@ function createAllTripRow(trip) {
   const service = trip.service || detectService(trip.raw || "");
   if (trip._routeCache == null) trip._routeCache = detectTripRoute(trip.raw || "") || "Local";
   const displayNotes = `${service} :  ${trip._routeCache}`;
+// Highlight trips that involve any city other than Bakersfield.
+// Bakersfield-to-Bakersfield (local) trips are not highlighted.
+const { pickupCity, dropCity } = getTripCities(trip.raw || "");
+const isOutOfTown = [pickupCity, dropCity].some(c => c && c.toLowerCase() !== "bakersfield");
 
   tr.innerHTML = `
     <td data-col="driver"><div class="driverAssignCell compactDriverAssign">
       <select class="driverSelect" title="Pickup Driver" onchange="updatePickupDriver('${trip.id}',this.value)">${driverOptions(trip.pickupDriver)}</select>
     </div></td>
     <td data-col="status"><select class="statusSelect ${statusClass(trip.pickupStatus)}" title="Pick status" onchange="this.className='statusSelect '+statusClass(this.value);updateTripField('${trip.id}','pickupStatus',this.value)">${statusOptions(trip.pickupStatus)}</select></td>
-    <td data-col="pickup">${timeInputControl(trip.pickupTime, "pickup", `resolveTimeInput(this,'pickup');updateTripField('${trip.id}','pickupTime',this.value)`)}</td>
-    <td data-col="notes"><textarea class="notesTextArea" rows="1" title="${escapeHtml(trip.notes || displayNotes)}" onchange="updateTripField('${trip.id}','notes',this.value)">${escapeHtml(trip.notes || displayNotes)}</textarea></td>
+    <td data-col="pickup">${timeSelectLazy(trip.pickupTime, "pickup", `updateTripField('${trip.id}','pickupTime',this.value)`)}</td>
+    <td data-col="notes"${isOutOfTown ? ' class="outTownNotes"' : ""}><textarea class="notesTextArea" rows="1" placeholder="${escapeHtml(displayNotes)}" title="${escapeHtml(trip.notes || displayNotes)}" onchange="updateTripField('${trip.id}','notes',this.value)">${escapeHtml(trip.notes || "")}</textarea></td>
     <td data-col="name"><textarea class="patientInput patientTextArea" rows="1" onchange="updateTripField('${trip.id}','passenger',this.value)">${escapeHtml(trip.passenger)}</textarea></td>
     <td data-col="details"><div class="tripDetailCell">
       <textarea class="tripDetailsInput editableTripDetails" rows="1" onchange="updateTripRaw('${trip.id}',this.value)">${escapeHtml(trip.raw)}</textarea>
@@ -2629,6 +2629,7 @@ function addImportedTripToBoard(importTrip) {
   parsed.pickupTime = normalizeTime(importTrip.pickupTime) || "ASAP";
   parsed.returnTime = normalizeTime((importTrip.line.match(/Return@\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i) || [])[1] || "") || "R/T";
   parsed.passenger = importTrip.passenger || parsed.passenger;
+  parsed.notes = "";
   parsed.service = importTrip.service || parsed.service;
   parsed.pickupStatus = "UNASSIGNED";
   parsed.returnStatus = "UNASSIGNED";
@@ -2659,6 +2660,7 @@ function addAllDisplayedTrips() {
     parsed.pickupTime = normalizeTime(importTrip.pickupTime) || "ASAP";
     parsed.returnTime = normalizeTime((importTrip.line.match(/Return@\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i) || [])[1] || "") || "R/T";
     parsed.passenger = importTrip.passenger || parsed.passenger;
+    parsed.notes = "";
     parsed.service = importTrip.service || parsed.service;
     parsed.pickupStatus = "UNASSIGNED";
     parsed.returnStatus = "UNASSIGNED";
@@ -2749,7 +2751,6 @@ function updateImportCounts() {
 }
 
 // Final initialization
-initTimeDatalists();
 saveData();
 render();
 updateUndoRedoButtons();

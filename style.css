@@ -281,7 +281,8 @@ body.resizingCol, body.resizingRow, body.draggingCol { user-select: none; touch-
 }
 .tripTable td:last-child { overflow: visible; }
 .tripTable tr.tripMenuOpen { position: relative; z-index: 50; }
-
+/* Notes cell for trips going to/from a city other than Bakersfield */
+.tripTable td.outTownNotes { background: #faf6e1; }
 .colResizer {
   position: absolute; right: 0; top: 0; width: 8px; height: 100%;
   cursor: col-resize;
