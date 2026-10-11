@@ -109,25 +109,33 @@ button:hover { filter: brightness(.92); }
 /* ---------- Shared form controls ---------- */
 .driverSelect, .statusSelect, .timeSelect,
 .smallTextInput, .patientInput, .tripDetailsInput, .notesTextArea {
-  width: 100%; min-width: 0; color: #6a0000;
+  width: 100%; min-width: 0; color: #000000; font-weight: 800;
   border: none; border-radius: 0;
   height: 24px; padding: 2px 4px;
-  font-size: 12px; background: transparent;
+  font-size: 14px; background: transparent;
   appearance: none; -webkit-appearance: none;
 }
 .timeSelect { text-align: center; font-weight: 700; cursor: pointer; }
 .statusSelect { font-weight: 700; cursor: pointer; }
 .patientInput, .patientTextArea {
-  font-weight: 600; color: #7d2ec2;
+  font-weight: 600; color: #ff0000;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   resize: none;
+}
+textarea.patientInput.patientTextArea {
+    text-align: center;
+    font-size: 16px;
 }
 .notesTextArea {
-  font-weight: 600; color: #1e40af;
+  font-size: 15px; line-height: 20px;
+  font-weight: 400; color: #173ebe;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   resize: none;
 }
-.notesTextArea::placeholder { color: #93a5c9; font-weight: 500; }
+.notesTextArea::placeholder { color: #000000; font-weight: 400; }
+/* Bold only for AMB service trips */
+.tripTable tr.amb .notesTextArea,
+.tripTable tr.amb .notesTextArea::placeholder { font-weight: 800; }
 .tripDetailsInput {
   height: 24px; max-height: 24px;
   resize: none; overflow: auto;
@@ -274,10 +282,10 @@ body.resizingCol, body.resizingRow, body.draggingCol { user-select: none; touch-
   user-select: none;
 }
 .tripTable td {
-  padding: 0; height: 24px;
+  padding: 0; height: 10px;
   border: 1px solid #e0e0e0;
   vertical-align: middle; overflow: hidden;
-  font-size: 12px; background: #fff;
+  font-size: 5px ; background: #fff;
 }
 .tripTable td:last-child { overflow: visible; }
 .tripTable tr.tripMenuOpen { position: relative; z-index: 50; }
