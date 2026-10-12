@@ -182,6 +182,7 @@ function tripToFirestore(t) {
     notes: t.notes || "",
     passenger: t.passenger || "",
     service: t.service || "AMB",
+    highlight: typeof t.highlight === "boolean" ? t.highlight : null,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   };
 }
@@ -199,6 +200,7 @@ function firestoreToTrip(id, data) {
     notes: data.notes || "",
     passenger: data.passenger || "",
     service: data.service || "AMB",
+    highlight: typeof data.highlight === "boolean" ? data.highlight : null,
     editing: false
   };
 }
@@ -562,6 +564,7 @@ trips = trips.map(t => ({
   notes: t.notes || "",
   passenger: t.passenger || parsePassenger(t.raw || ""),
   service: t.service || detectService(t.raw || ""),
+  highlight: typeof t.highlight === "boolean" ? t.highlight : null,
   editing: false
 }));
 
@@ -884,6 +887,7 @@ function parseTrip(raw, pickupDriver = "", returnDriver = "", pickupTime = "", r
     notes: parseNotes(raw),
     passenger: parsePassenger(raw),
     service: detectService(" " + text + " "),
+    highlight: null,
     editing: false
   };
 }
@@ -1188,6 +1192,8 @@ function addTripFromModal() {
   trip.returnStatus = document.getElementById("modalReturnStatus").value || "UNASSIGNED";
   trip.notes = document.getElementById("modalNotes").value || trip.notes;
   trip.passenger = document.getElementById("modalPassenger").value || trip.passenger;
+  const hl = document.getElementById("modalHighlight").value;
+  trip.highlight = hl === "on" ? true : hl === "off" ? false : null;
 
   pushUndo();
   trips.push(trip);
@@ -1238,6 +1244,7 @@ function fillAddTripModal() {
       <label>Return Status<select id="modalReturnStatus" class="statusSelect statusUnassigned" onchange="this.className='statusSelect '+statusClass(this.value)">${statusOptions("UNASSIGNED")}</select></label>
       <label>Notes<input id="modalNotes" class="smallTextInput" placeholder="Notes"></label>
       <label>Patient Name<input id="modalPassenger" class="smallTextInput" placeholder="Patient name"></label>
+      <label>Notes Highlight<select id="modalHighlight" class="driverSelect"><option value="auto">Auto (out of town)</option><option value="on">Highlight</option><option value="off">No highlight</option></select></label>
       <label class="fullAddTrip">Trip Details<textarea id="modalTripRaw" class="tripDetailsInput bigTripBox" placeholder="Paste trip details here, then press Enter" onkeydown="addTripOnEnter(event)"></textarea></label>
     </div>`;
 }
@@ -1304,6 +1311,31 @@ function deleteTrip(id) {
   cloudDeleteTrip(id);
   closeTripActionMenus();
   render();
+}
+
+/** Current notes-cell highlight state: manual choice wins, otherwise the out-of-town rule. */
+function isTripNotesHighlighted(t) {
+  if (t.highlight === true) return true;
+  if (t.highlight === false) return false;
+  const { pickupCity, dropCity } = getTripCities(t.raw || "");
+  return [pickupCity, dropCity].some(c => c && c.toLowerCase() !== "bakersfield");
+}
+
+function toggleTripHighlight(id) {
+  const t = trips.find(x => x.id === id);
+  if (!t) return;
+  pushUndo();
+  t.highlight = !isTripNotesHighlighted(t);
+  saveData();
+  cloudUpsertTrip(t);
+  const tr = document.querySelector(`#allTripsList tr[data-trip-id="${id}"]`);
+  if (tr) {
+    const td = tr.querySelector('td[data-col="notes"]');
+    if (td) td.classList.toggle("outTownNotes", t.highlight);
+    const btn = document.getElementById("tripHighlightBtn_" + id);
+    if (btn) btn.textContent = t.highlight ? "Unhighlight notes" : "Highlight notes";
+  }
+  closeTripActionMenus();
 }
 
 function closeTripActionMenus() {
@@ -1554,6 +1586,8 @@ function createAllTripRow(trip) {
 // Bakersfield-to-Bakersfield (local) trips are not highlighted.
 const { pickupCity, dropCity } = getTripCities(trip.raw || "");
 const isOutOfTown = [pickupCity, dropCity].some(c => c && c.toLowerCase() !== "bakersfield");
+// trip.highlight: true = forced on, false = forced off, null = automatic (city rule above)
+const isHighlighted = trip.highlight === true || (trip.highlight !== false && isOutOfTown);
 
   tr.innerHTML = `
     <td data-col="driver"><div class="driverAssignCell compactDriverAssign">
@@ -1561,13 +1595,14 @@ const isOutOfTown = [pickupCity, dropCity].some(c => c && c.toLowerCase() !== "b
     </div></td>
     <td data-col="status"><select class="statusSelect ${statusClass(trip.pickupStatus)}" title="Pick status" onchange="this.className='statusSelect '+statusClass(this.value);updateTripField('${trip.id}','pickupStatus',this.value)">${statusOptions(trip.pickupStatus)}</select></td>
     <td data-col="pickup">${timeSelectLazy(trip.pickupTime, "pickup", `updateTripField('${trip.id}','pickupTime',this.value)`)}</td>
-    <td data-col="notes"${isOutOfTown ? ' class="outTownNotes"' : ""}><textarea class="notesTextArea" rows="1" placeholder="${escapeHtml(displayNotes)}" title="${escapeHtml(trip.notes || displayNotes)}" onchange="updateTripField('${trip.id}','notes',this.value)">${escapeHtml(trip.notes || "")}</textarea></td>
+    <td data-col="notes"${isHighlighted ? ' class="outTownNotes"' : ""}><textarea class="notesTextArea" rows="1" placeholder="${escapeHtml(displayNotes)}" title="${escapeHtml(trip.notes || displayNotes)}" onchange="updateTripField('${trip.id}','notes',this.value)">${escapeHtml(trip.notes || "")}</textarea></td>
     <td data-col="name"><textarea class="patientInput patientTextArea" rows="1" onchange="updateTripField('${trip.id}','passenger',this.value)">${escapeHtml(trip.passenger)}</textarea></td>
     <td data-col="details"><div class="tripDetailCell">
       <textarea class="tripDetailsInput editableTripDetails" rows="1" onchange="updateTripRaw('${trip.id}',this.value)">${escapeHtml(trip.raw)}</textarea>
       <div class="tripActionWrap">
         <button type="button" class="tripActionBtn" title="Trip actions" onclick="toggleTripActionMenu(event,'${trip.id}')">▾</button>
         <div id="tripActionMenu_${trip.id}" class="tripActionMenu">
+          <button type="button" id="tripHighlightBtn_${trip.id}" class="tripActionHighlight" onclick="toggleTripHighlight('${trip.id}')">${isHighlighted ? "Unhighlight notes" : "Highlight notes"}</button>
           <button type="button" class="tripActionDelete" onclick="deleteTrip('${trip.id}')">Delete trip</button>
         </div>
       </div>
