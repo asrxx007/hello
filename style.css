@@ -161,7 +161,26 @@ textarea.patientInput.patientTextArea {
 .tripTable tr.amb { box-shadow: inset 4px 0 0 #1976d2; }
 
 /* ---------- Drivers board ---------- */
-.driversBoard { overflow: auto; }
+.driversBoard {
+  overflow: auto;
+  scrollbar-width: none;           /* Firefox */
+  -ms-overflow-style: none;        /* IE/Edge */
+}
+.driversBoard::-webkit-scrollbar { display: none; }  /* Chrome, Safari, Edge */
+.driversBoardWrap { position: relative; }
+.driverScrollBtn {
+  position: absolute; top: 60%; transform: translateY(-50%);
+  width: 40px; height: 40px; padding: 0; z-index: 6;
+  display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 0;
+  background: transparent; color: #111827;
+  box-shadow: none; filter: none;
+  font-size: 30px;
+}
+.driverScrollBtn:hover { background: transparent; filter: none; opacity: .6; }
+.driverScrollBtn.left { left: 4px; }
+.driverScrollBtn.right { right: 4px; }
+.driverScrollBtn[hidden] { display: none; }
 .driverTableWrap {
   border: 1px solid #d9d9d9; background: #fff; position: relative;
 }

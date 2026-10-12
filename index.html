@@ -23,8 +23,6 @@
       <div class="summary">
         <span>Total: <b id="totalTrips">0</b></span>
         <span>No Driver: <b id="unassignedCount">0</b></span>
-        <span>Assigned: <b id="assignedCount">0</b></span>
-        <span>Loaded: <b id="loadedCount">0</b></span>
         <span>Done: <b id="doneCount">0</b></span>
         <span>Cancelled: <b id="cancelledCount">0</b></span>
       </div>
@@ -78,7 +76,11 @@
       </button>
     </div>
 
-    <div id="driversBoard" class="driversBoard"></div>
+    <div class="driversBoardWrap">
+      <button id="driverScrollLeft" class="driverScrollBtn left" type="button" title="Scroll drivers left" onclick="scrollDriversBoard(-1)" hidden>←</button>
+      <div id="driversBoard" class="driversBoard"></div>
+      <button id="driverScrollRight" class="driverScrollBtn right" type="button" title="Scroll drivers right" onclick="scrollDriversBoard(1)" hidden>→</button>
+    </div>
   </section>
   
   <section class="allTripsBox">

@@ -1687,21 +1687,17 @@ function patchTripStatusRow(trip) {
 }
 
 function updateSummaryCountsOnly() {
-  let total = 0, unassigned = 0, assigned = 0, loaded = 0, done = 0, cancelled = 0, hidden = 0;
+  let total = 0, unassigned = 0, done = 0, cancelled = 0, hidden = 0;
   for (const t of trips) {
     if (t.hidden) { hidden++; continue; }
     total++;
     if (!t.pickupDriver && !t.returnDriver) unassigned++;
-    if (t.pickupDriver || t.returnDriver) assigned++;
-    if (t.pickupStatus === "LOADED" || t.returnStatus === "LOADED") loaded++;
     if (t.pickupStatus === "DONE" || t.returnStatus === "DONE") done++;
     if (t.pickupStatus === "CANCELLED" || t.returnStatus === "CANCELLED") cancelled++;
   }
   const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
   setTxt("totalTrips", total);
   setTxt("unassignedCount", unassigned);
-  setTxt("assignedCount", assigned);
-  setTxt("loadedCount", loaded);
   setTxt("doneCount", done);
   setTxt("cancelledCount", cancelled);
 }
@@ -1909,16 +1905,63 @@ function scrollDriverTripsToBottom() {
     box.scrollTop = box.scrollHeight;
   });
 }
+/* ---- Drivers board: no scrollbar, left/right arrow buttons instead ---- */
+let _driverScrollInit = false;
+let _driverTableObserver = null;
+
+function scrollDriversBoard(dir) {
+  const board = document.getElementById("driversBoard");
+  if (!board) return;
+  board.scrollBy({ left: dir * Math.max(120, board.clientWidth * 0.8), behavior: "smooth" });
+}
+
+// Arrows show only when the driver columns are wider than the screen,
+// and each arrow only when there is more to scroll in that direction.
+function updateDriverScrollButtons() {
+  const board = document.getElementById("driversBoard");
+  const left = document.getElementById("driverScrollLeft");
+  const right = document.getElementById("driverScrollRight");
+  if (!board || !left || !right) return;
+  const max = board.scrollWidth - board.clientWidth;
+  left.hidden = !(max > 1 && board.scrollLeft > 1);
+  right.hidden = !(max > 1 && board.scrollLeft < max - 1);
+}
+
+function initDriverScrollButtons() {
+  if (_driverScrollInit) return;
+  const board = document.getElementById("driversBoard");
+  if (!board) return;
+  _driverScrollInit = true;
+  board.addEventListener("scroll", updateDriverScrollButtons, { passive: true });
+  window.addEventListener("resize", updateDriverScrollButtons);
+  if (window.ResizeObserver) {
+    _driverTableObserver = new ResizeObserver(updateDriverScrollButtons);
+    _driverTableObserver.observe(board);
+  }
+}
+
 function renderDrivers() {
   const board = document.getElementById("driversBoard");
+  initDriverScrollButtons();
+  const prevScrollLeft = board.scrollLeft;
   board.innerHTML = "";
   if (!drivers.length) {
     board.innerHTML = `<div class="emptyText">No drivers added.</div>`;
+    updateDriverScrollButtons();
     return;
   }
-  board.appendChild(createDriverTable());
+  const table = createDriverTable();
+  board.appendChild(table);
   setupResizableDriverTable();
   scrollDriverTripsToBottom();
+  board.scrollLeft = prevScrollLeft;
+  // Column drags change the table width without changing the board's size.
+  if (_driverTableObserver) {
+    _driverTableObserver.disconnect();
+    _driverTableObserver.observe(board);
+    _driverTableObserver.observe(table.querySelector("table") || table);
+  }
+  updateDriverScrollButtons();
 }
 
 let _renderRaf = 0;
@@ -1926,19 +1969,15 @@ function render() {
   if (_renderRaf) cancelAnimationFrame(_renderRaf);
   _renderRaf = requestAnimationFrame(() => {
     _renderRaf = 0;
-    let total = 0, unassigned = 0, assigned = 0, loaded = 0, done = 0, cancelled = 0, hidden = 0;
+    let total = 0, unassigned = 0, done = 0, cancelled = 0;
     for (const t of trips) {
       total++;
       if (!t.pickupDriver && !t.returnDriver) unassigned++;
-      if (t.pickupDriver || t.returnDriver) assigned++;
-      if (t.pickupStatus === "LOADED" || t.returnStatus === "LOADED") loaded++;
       if (t.pickupStatus === "DONE" || t.returnStatus === "DONE") done++;
       if (t.pickupStatus === "CANCELLED" || t.returnStatus === "CANCELLED") cancelled++;
     }
     document.getElementById("totalTrips").textContent = total;
     document.getElementById("unassignedCount").textContent = unassigned;
-    document.getElementById("assignedCount").textContent = assigned;
-    document.getElementById("loadedCount").textContent = loaded;
     document.getElementById("doneCount").textContent = done;
     document.getElementById("cancelledCount").textContent = cancelled;
     renderDrivers();
